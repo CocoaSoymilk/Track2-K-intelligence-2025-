@@ -1,16 +1,8 @@
 import streamlit as st
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import json
-import os
 import base64
-import io
 from typing import Dict, List
-import openai
-import tempfile
-from pathlib import Path
 
 # 페이지 설정
 st.set_page_config(
@@ -19,20 +11,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# OpenAI API 키 설정
-@st.cache_resource
-def init_openai():
-    """OpenAI API 초기화"""
-    if "OPENAI_API_KEY" in st.secrets:
-        return openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-    elif "openai_api_key" in st.session_state and st.session_state.openai_api_key:
-        return openai.OpenAI(api_key=st.session_state.openai_api_key)
-    else:
-        return None
-
-# OpenAI 클라이언트 초기화
-openai_client = init_openai()
 
 # CSS 스타일링
 st.markdown("""
@@ -54,11 +32,6 @@ st.markdown("""
         border-left: 5px solid #667eea;
         margin: 1rem 0;
         box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-        transition: transform 0.2s ease;
-    }
-    
-    .emotion-card:hover {
-        transform: translateY(-2px);
     }
     
     .metric-container {
@@ -68,12 +41,6 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         text-align: center;
         border: 1px solid #e9ecef;
-        transition: all 0.3s ease;
-    }
-    
-    .metric-container:hover {
-        box-shadow: 0 6px 20px rgba(0,0,0,0.15);
-        transform: translateY(-3px);
     }
     
     .feedback-box {
@@ -94,24 +61,11 @@ st.markdown("""
         border: 2px dashed #667eea;
     }
     
-    .daily-summary {
-        background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        border-left: 4px solid #ff9800;
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
         margin: 1rem 0;
-    }
-    
-    /* 반응형 디자인 */
-    @media (max-width: 768px) {
-        .main-header {
-            padding: 1rem;
-        }
-        
-        .emotion-card, .metric-container, .feedback-box {
-            margin: 0.5rem 0;
-            padding: 1rem;
-        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -120,115 +74,14 @@ st.markdown("""
 if 'diary_entries' not in st.session_state:
     st.session_state.diary_entries = []
 
-def transcribe_audio_with_whisper(audio_bytes):
-    """Whisper API를 사용하여 음성을 텍스트로 변환"""
-    if not openai_client:
-        return None
-    
-    try:
-        # 임시 파일로 저장
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
-            tmp_file.write(audio_bytes)
-            tmp_file_path = tmp_file.name
-        
-        # Whisper API 호출
-        with open(tmp_file_path, "rb") as audio_file:
-            transcript = openai_client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                language="ko"
-            )
-        
-        # 임시 파일 삭제
-        os.unlink(tmp_file_path)
-        
-        return transcript.text
-        
-    except Exception as e:
-        st.error(f"음성 변환 오류: {str(e)}")
-        return None
-
-def analyze_emotion_with_gpt(text: str) -> Dict:
-    """GPT-4를 사용하여 감정을 분석합니다."""
-    if not openai_client:
-        return analyze_emotion_simulation(text)
-    
-    try:
-        response = openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system",
-                    "content": """당신은 한국어 음성 일기를 분석하는 전문가입니다. 
-                    다음 텍스트를 분석하여 정확한 JSON 형식으로 응답해주세요.
-                    
-                    응답 형식:
-                    {
-                        "emotions": ["기쁨", "슬픔", "분노", "불안", "평온", "중립" 중 해당하는 것들의 배열],
-                        "stress_level": 스트레스 수치 (0-100의 정수),
-                        "energy_level": 에너지 수치 (0-100의 정수),
-                        "mood_score": 전체적인 기분 점수 (-70부터 +70 사이의 정수),
-                        "summary": "한두 문장으로 요약한 감정 상태",
-                        "keywords": ["핵심 키워드들"],
-                        "tone": "긍정적" 또는 "중립적" 또는 "부정적"
-                    }
-                    
-                    텍스트의 어조, 내용, 상황을 종합적으로 고려하여 정확히 분석해주세요."""
-                },
-                {
-                    "role": "user",
-                    "content": f"다음 일기를 분석해주세요: {text}"
-                }
-            ],
-            temperature=0.3,
-            max_tokens=1000
-        )
-        
-        result_text = response.choices[0].message.content.strip()
-        
-        # JSON 파싱 시도
-        try:
-            # 코드 블록 제거
-            if "```json" in result_text:
-                result_text = result_text.split("```json")[1].split("```")[0]
-            elif "```" in result_text:
-                result_text = result_text.split("```")[1]
-            
-            result = json.loads(result_text.strip())
-            
-            # 필수 필드 확인 및 기본값 설정
-            required_fields = {
-                'emotions': ['중립'],
-                'stress_level': 30,
-                'energy_level': 50,
-                'mood_score': 0,
-                'summary': '일반적인 상태입니다.',
-                'keywords': [],
-                'tone': '중립적'
-            }
-            
-            for field, default_value in required_fields.items():
-                if field not in result:
-                    result[field] = default_value
-            
-            return result
-            
-        except json.JSONDecodeError:
-            st.warning("GPT 응답 파싱 중 오류 발생. 시뮬레이션 모드로 전환합니다.")
-            return analyze_emotion_simulation(text)
-        
-    except Exception as e:
-        st.error(f"GPT 분석 오류: {str(e)}")
-        return analyze_emotion_simulation(text)
-
-def analyze_emotion_simulation(text: str) -> Dict:
-    """GPT API 없이 기본 감정 분석"""
+def analyze_emotion_simple(text: str) -> Dict:
+    """간단한 키워드 기반 감정 분석"""
     emotions_map = {
-        '기쁨': ['좋다', '행복', '기쁘다', '즐겁다', '웃음', '성공', '뿌듯', '만족', '사랑', '고마운'],
-        '슬픔': ['슬프다', '우울', '눈물', '힘들다', '실망', '아프다', '외롭다', '그립다'],
-        '분노': ['화나다', '짜증', '분하다', '억울', '답답', '열받다', '미치겠다'],
-        '불안': ['걱정', '불안', '스트레스', '두렵다', '긴장', '무서워', '초조'],
-        '평온': ['평온', '차분', '안정', '편안', '휴식', '여유', '고요']
+        '기쁨': ['좋다', '행복', '기쁘다', '즐겁다', '웃음', '성공', '뿌듯', '만족', '사랑', '고마운', '신나다'],
+        '슬픔': ['슬프다', '우울', '눈물', '힘들다', '실망', '아프다', '외롭다', '그립다', '안타깝다'],
+        '분노': ['화나다', '짜증', '분하다', '억울', '답답', '열받다', '미치겠다', '빡치다'],
+        '불안': ['걱정', '불안', '스트레스', '두렵다', '긴장', '무서워', '초조', '조급'],
+        '평온': ['평온', '차분', '안정', '편안', '휴식', '여유', '고요', '평화']
     }
     
     detected_emotions = []
@@ -247,19 +100,19 @@ def analyze_emotion_simulation(text: str) -> Dict:
                 break
     
     # 스트레스와 에너지 수준 추정
-    stress_keywords = ['스트레스', '힘들다', '피곤', '지쳐', '화나다', '걱정', '바쁘다']
-    energy_keywords = ['좋다', '행복', '에너지', '활기', '뿌듯', '즐겁다', '신나다']
+    stress_keywords = ['스트레스', '힘들다', '피곤', '지쳐', '화나다', '걱정', '바쁘다', '답답', '짜증']
+    energy_keywords = ['좋다', '행복', '에너지', '활기', '뿌듯', '즐겁다', '신나다', '만족', '성공']
     
     stress_count = sum(1 for word in stress_keywords if word in text_lower)
     energy_count = sum(1 for word in energy_keywords if word in text_lower)
     
     if stress_count > energy_count:
-        stress_level = min(80, 40 + stress_count * 15)
-        energy_level = max(20, 60 - stress_count * 15)
+        stress_level = min(85, 40 + stress_count * 20)
+        energy_level = max(15, 60 - stress_count * 15)
         tone = "부정적"
     elif energy_count > stress_count:
-        stress_level = max(15, 40 - energy_count * 10)
-        energy_level = min(85, 50 + energy_count * 15)
+        stress_level = max(10, 40 - energy_count * 15)
+        energy_level = min(90, 50 + energy_count * 20)
         tone = "긍정적"
     else:
         tone = "중립적"
@@ -276,68 +129,18 @@ def analyze_emotion_simulation(text: str) -> Dict:
         'tone': tone
     }
 
-def generate_personalized_feedback(entries: List[Dict]) -> str:
-    """개인화된 피드백 생성"""
+def generate_simple_feedback(entries: List[Dict]) -> str:
+    """간단한 피드백 생성"""
     if not entries:
         return "첫 번째 음성 일기를 작성해보세요! 🎙️"
     
     recent_entries = entries[-7:]  # 최근 7일
-    
-    if not openai_client:
-        return generate_basic_feedback(recent_entries)
-    
-    try:
-        # 최근 데이터 요약
-        summary_data = []
-        for entry in recent_entries:
-            summary_data.append({
-                'date': entry['date'],
-                'emotions': entry['analysis']['emotions'],
-                'stress': entry['analysis']['stress_level'],
-                'energy': entry['analysis']['energy_level'],
-                'tone': entry['analysis'].get('tone', '중립적')
-            })
-        
-        response = openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system",
-                    "content": """당신은 따뜻하고 공감적인 AI 멘탈 헬스 코치입니다. 
-                    사용자의 최근 일주일간 감정 데이터를 분석하여 다음을 제공하세요:
-                    
-                    1. 감정 패턴에 대한 관찰 (1-2문장)
-                    2. 구체적이고 실용적인 조언 (1-2문장)
-                    3. 격려의 메시지 (1문장)
-                    
-                    전체 3-4문장으로, 친근하고 따뜻한 톤으로 작성해주세요.
-                    의학적 진단이나 치료를 언급하지 말고, 일상적인 웰빙 조언에 집중하세요."""
-                },
-                {
-                    "role": "user",
-                    "content": f"최근 일주일간의 감정 데이터를 분석해주세요:\n{json.dumps(summary_data, ensure_ascii=False, indent=2)}"
-                }
-            ],
-            temperature=0.7,
-            max_tokens=500
-        )
-        
-        return response.choices[0].message.content.strip()
-        
-    except Exception as e:
-        return generate_basic_feedback(recent_entries)
-
-def generate_basic_feedback(entries: List[Dict]) -> str:
-    """기본 피드백 생성"""
-    if not entries:
-        return "첫 번째 음성 일기를 작성해보세요! 🎙️"
-    
-    avg_stress = sum(entry['analysis']['stress_level'] for entry in entries) / len(entries)
-    avg_energy = sum(entry['analysis']['energy_level'] for entry in entries) / len(entries)
+    avg_stress = sum(entry['analysis']['stress_level'] for entry in recent_entries) / len(recent_entries)
+    avg_energy = sum(entry['analysis']['energy_level'] for entry in recent_entries) / len(recent_entries)
     
     # 감정 빈도 분석
     all_emotions = []
-    for entry in entries:
+    for entry in recent_entries:
         all_emotions.extend(entry['analysis']['emotions'])
     
     emotion_counts = {}
@@ -363,23 +166,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# API 키 설정 체크
-if not openai_client:
-    with st.sidebar:
-        st.warning("🔑 OpenAI API 키가 필요합니다")
-        with st.expander("API 키 입력하기"):
-            api_key = st.text_input("OpenAI API 키", type="password", help="sk-로 시작하는 API 키를 입력하세요")
-            if st.button("저장"):
-                if api_key.startswith("sk-"):
-                    st.session_state.openai_api_key = api_key
-                    openai_client = openai.OpenAI(api_key=api_key)
-                    st.success("API 키가 저장되었습니다!")
-                    st.rerun()
-                else:
-                    st.error("올바른 API 키 형식이 아닙니다.")
-        
-        st.info("💡 API 키 없이도 기본 기능을 체험할 수 있습니다.")
-
 # 사이드바 네비게이션
 with st.sidebar:
     st.title("📱 메뉴")
@@ -395,8 +181,7 @@ with st.sidebar:
     
     page = st.selectbox(
         "페이지 선택",
-        ["🎙️ 오늘의 일기", "📊 감정 분석", "📈 감정 그래프", "💡 개인화 피드백", "📚 일기 아카이브"],
-        help="원하는 페이지를 선택하세요"
+        ["🎙️ 오늘의 일기", "📊 감정 분석", "📈 간단 통계", "💡 개인화 피드백", "📚 일기 목록"]
     )
     
     st.markdown("---")
@@ -470,25 +255,15 @@ if page == "🎙️ 오늘의 일기":
         if audio_value is not None:
             audio_bytes = audio_value.read()
             audio_data = base64.b64encode(audio_bytes).decode()
-            
-            with st.spinner("🤖 음성을 텍스트로 변환하는 중..."):
-                if openai_client:
-                    diary_text = transcribe_audio_with_whisper(audio_bytes)
-                    if diary_text:
-                        st.success("✅ 음성이 성공적으로 변환되었습니다!")
-                        st.info(f"**변환된 텍스트:** {diary_text}")
-                    else:
-                        st.error("음성 변환에 실패했습니다. 텍스트로 입력해주세요.")
-                else:
-                    st.warning("API 키가 없어 음성 변환을 할 수 없습니다. 텍스트로 입력해주세요.")
+            st.info("🎵 음성이 저장되었습니다. 텍스트도 함께 입력해주세요.")
         
         # 텍스트 입력 처리
-        if not diary_text and text_input.strip():
+        if text_input.strip():
             diary_text = text_input.strip()
         
         if diary_text:
-            with st.spinner("🤖 AI가 감정을 분석하는 중..."):
-                analysis = analyze_emotion_with_gpt(diary_text)
+            with st.spinner("🤖 감정을 분석하는 중..."):
+                analysis = analyze_emotion_simple(diary_text)
             
             # 일기 저장
             entry = {
@@ -540,16 +315,15 @@ if page == "🎙️ 오늘의 일기":
                 """, unsafe_allow_html=True)
             
             # AI 요약
-            if 'summary' in analysis:
-                st.markdown(f"""
-                <div class="feedback-box">
-                    <h4>🤖 AI 요약</h4>
-                    <p>{analysis['summary']}</p>
-                </div>
-                """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="feedback-box">
+                <h4>🤖 AI 요약</h4>
+                <p>{analysis['summary']}</p>
+            </div>
+            """, unsafe_allow_html=True)
             
         else:
-            st.warning("⚠️ 음성을 녹음하거나 텍스트를 입력해주세요!")
+            st.warning("⚠️ 텍스트를 입력해주세요!")
 
 elif page == "📊 감정 분석":
     st.header("감정 분석 대시보드")
@@ -557,273 +331,148 @@ elif page == "📊 감정 분석":
     if not st.session_state.diary_entries:
         st.info("📝 아직 작성된 일기가 없습니다. 첫 번째 일기를 작성해보세요!")
     else:
-        # 필터 옵션
-        col1, col2, col3 = st.columns(3)
+        # 오늘의 요약
+        if today_entries:
+            st.markdown("### 📅 오늘의 감정 요약")
+            latest = today_entries[-1]
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("주요 감정", ', '.join(latest['analysis']['emotions'][:2]))
+            with col2:
+                st.metric("스트레스", f"{latest['analysis']['stress_level']}%")
+            with col3:
+                st.metric("활력", f"{latest['analysis']['energy_level']}%")
+            with col4:
+                mood_emoji = "😊" if latest['analysis']['mood_score'] > 10 else "😐" if latest['analysis']['mood_score'] > -10 else "😔"
+                st.metric("기분", f"{mood_emoji} {latest['analysis']['mood_score']}")
         
-        with col1:
-            date_filter = st.selectbox(
-                "기간 필터",
-                ["전체", "오늘", "최근 7일", "최근 30일"],
-                index=2
-            )
+        # 최근 일기 목록
+        st.markdown(f"### 📝 최근 일기 ({len(st.session_state.diary_entries)}개)")
         
-        with col2:
-            emotion_filter = st.selectbox(
-                "감정 필터", 
-                ["전체"] + list(set([emotion for entry in st.session_state.diary_entries for emotion in entry['analysis']['emotions']]))
-            )
-        
-        # 필터 적용
-        filtered_entries = st.session_state.diary_entries.copy()
-        
-        if date_filter == "오늘":
-            today = datetime.now().strftime("%Y-%m-%d")
-            filtered_entries = [e for e in filtered_entries if e['date'] == today]
-        elif date_filter == "최근 7일":
-            week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-            filtered_entries = [e for e in filtered_entries if e['date'] >= week_ago]
-        elif date_filter == "최근 30일":
-            month_ago = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-            filtered_entries = [e for e in filtered_entries if e['date'] >= month_ago]
-        
-        if emotion_filter != "전체":
-            filtered_entries = [e for e in filtered_entries if emotion_filter in e['analysis']['emotions']]
-        
-        if not filtered_entries:
-            st.warning("선택한 필터에 해당하는 일기가 없습니다.")
-        else:
-            # 오늘의 요약 (오늘 일기가 있는 경우)
-            today_entries = [e for e in filtered_entries if e['date'] == datetime.now().strftime("%Y-%m-%d")]
-            if today_entries and date_filter in ["전체", "오늘", "최근 7일", "최근 30일"]:
-                st.markdown("### 📅 오늘의 감정 요약")
-                latest = today_entries[-1]
+        for entry in reversed(st.session_state.diary_entries[-5:]):
+            with st.expander(
+                f"📅 {entry['date']} {entry['time']} - {', '.join(entry['analysis']['emotions'])} "
+                f"({'😊' if entry['analysis']['mood_score'] > 10 else '😐' if entry['analysis']['mood_score'] > -10 else '😔'})"
+            ):
+                # 일기 내용
+                st.markdown(f"**📝 내용:** {entry['text']}")
                 
-                col1, col2, col3, col4 = st.columns(4)
+                # 음성 파일 재생
+                if entry.get('audio_data'):
+                    st.markdown("**🎵 녹음된 음성:**")
+                    audio_bytes = base64.b64decode(entry['audio_data'])
+                    st.audio(audio_bytes)
+                
+                # 분석 결과
+                col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("주요 감정", ', '.join(latest['analysis']['emotions'][:2]))
+                    st.metric("스트레스", f"{entry['analysis']['stress_level']}%")
                 with col2:
-                    st.metric("스트레스", f"{latest['analysis']['stress_level']}%")
+                    st.metric("활력", f"{entry['analysis']['energy_level']}%")
                 with col3:
-                    st.metric("활력", f"{latest['analysis']['energy_level']}%")
-                with col4:
-                    mood_emoji = "😊" if latest['analysis']['mood_score'] > 10 else "😐" if latest['analysis']['mood_score'] > -10 else "😔"
-                    st.metric("기분", f"{mood_emoji} {latest['analysis']['mood_score']}")
-            
-            # 일기 목록
-            st.markdown(f"### 📝 일기 목록 ({len(filtered_entries)}개)")
-            
-            # 페이지네이션
-            items_per_page = 5
-            total_pages = (len(filtered_entries) - 1) // items_per_page + 1
-            current_page = st.select_slider("페이지", range(1, total_pages + 1), value=1)
-            
-            start_idx = (current_page - 1) * items_per_page
-            end_idx = start_idx + items_per_page
-            current_entries = list(reversed(filtered_entries))[start_idx:end_idx]
-            
-            for i, entry in enumerate(current_entries):
-                with st.expander(
-                    f"📅 {entry['date']} {entry['time']} - {', '.join(entry['analysis']['emotions'])} "
-                    f"({'😊' if entry['analysis']['mood_score'] > 10 else '😐' if entry['analysis']['mood_score'] > -10 else '😔'})"
-                ):
-                    # 일기 내용
-                    st.markdown(f"**📝 내용:** {entry['text']}")
-                    
-                    # 음성 파일 재생
-                    if entry.get('audio_data'):
-                        st.markdown("**🎵 녹음된 음성:**")
-                        audio_bytes = base64.b64decode(entry['audio_data'])
-                        st.audio(audio_bytes)
-                    
-                    # 분석 결과
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("스트레스", f"{entry['analysis']['stress_level']}%")
-                    with col2:
-                        st.metric("활력", f"{entry['analysis']['energy_level']}%")
-                    with col3:
-                        st.metric("기분 점수", f"{entry['analysis']['mood_score']}")
-                    
-                    # AI 요약
-                    if 'summary' in entry['analysis']:
-                        st.info(f"🤖 **AI 분석:** {entry['analysis']['summary']}")
-                    
-                    # 키워드
-                    if entry['analysis'].get('keywords'):
-                        st.markdown(f"**🏷️ 키워드:** {', '.join(entry['analysis']['keywords'])}")
+                    st.metric("기분 점수", f"{entry['analysis']['mood_score']}")
+                
+                # AI 요약
+                st.info(f"🤖 **AI 분석:** {entry['analysis']['summary']}")
+                
+                # 키워드
+                if entry['analysis'].get('keywords'):
+                    st.markdown(f"**🏷️ 키워드:** {', '.join(entry['analysis']['keywords'])}")
 
-elif page == "📈 감정 그래프":
-    st.header("감정 변화 그래프")
+elif page == "📈 간단 통계":
+    st.header("감정 통계")
     
     if not st.session_state.diary_entries:
-        st.info("📊 일기를 작성하면 감정 변화를 시각적으로 확인할 수 있어요!")
+        st.info("📊 일기를 작성하면 감정 변화를 확인할 수 있어요!")
     else:
         # 기간 선택
-        period_options = {
-            "최근 7일": 7,
-            "최근 30일": 30,
-            "최근 90일": 90,
-            "전체": None
-        }
+        period_days = st.selectbox("📅 분석 기간", [7, 30, 90], format_func=lambda x: f"최근 {x}일")
         
-        selected_period = st.selectbox("📅 분석 기간", list(period_options.keys()), index=1)
+        entries_to_analyze = st.session_state.diary_entries[-period_days:]
         
-        entries_to_analyze = st.session_state.diary_entries
-        if period_options[selected_period]:
-            entries_to_analyze = st.session_state.diary_entries[-period_options[selected_period]:]
+        # 평균 통계
+        avg_stress = sum(entry['analysis']['stress_level'] for entry in entries_to_analyze) / len(entries_to_analyze)
+        avg_energy = sum(entry['analysis']['energy_level'] for entry in entries_to_analyze) / len(entries_to_analyze)
+        avg_mood = sum(entry['analysis']['mood_score'] for entry in entries_to_analyze) / len(entries_to_analyze)
         
-        # 데이터 준비
-        df = pd.DataFrame([
-            {
-                'date': entry['date'],
-                'time': entry['time'],
-                'datetime': f"{entry['date']} {entry['time']}",
-                'stress': entry['analysis']['stress_level'],
-                'energy': entry['analysis']['energy_level'],
-                'mood': entry['analysis']['mood_score'],
-                'emotions': ', '.join(entry['analysis']['emotions'][:2]),
-                'tone': entry['analysis'].get('tone', '중립적')
-            }
-            for entry in entries_to_analyze
-        ])
-        
-        # 일별 평균 계산
-        daily_avg = df.groupby('date').agg({
-            'stress': 'mean',
-            'energy': 'mean',
-            'mood': 'mean'
-        }).reset_index()
-        
-        # 메인 그래프들
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # 시간별 감정 변화
-            st.subheader("📈 일별 감정 변화")
-            fig = go.Figure()
-            
-            fig.add_trace(go.Scatter(
-                x=daily_avg['date'],
-                y=daily_avg['stress'],
-                name='스트레스',
-                line=dict(color='#ff6b6b', width=3),
-                hovertemplate='%{x}<br>스트레스: %{y:.1f}%<extra></extra>'
-            ))
-            
-            fig.add_trace(go.Scatter(
-                x=daily_avg['date'],
-                y=daily_avg['energy'],
-                name='활력',
-                line=dict(color='#51cf66', width=3),
-                hovertemplate='%{x}<br>활력: %{y:.1f}%<extra></extra>'
-            ))
-            
-            fig.update_layout(
-                height=400,
-                xaxis_title="날짜",
-                yaxis_title="수치 (%)",
-                hovermode='x unified',
-                showlegend=True
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            # 감정 분포
-            st.subheader("😊 감정 분포")
-            all_emotions = []
-            for entry in entries_to_analyze:
-                all_emotions.extend(entry['analysis']['emotions'])
-            
-            if all_emotions:
-                emotion_counts = pd.Series(all_emotions).value_counts()
-                colors = ['#ff9999', '#66b3ff', '#99ff99', '#ffcc99', '#ff99cc', '#c2c2f0']
-                
-                fig_pie = px.pie(
-                    values=emotion_counts.values,
-                    names=emotion_counts.index,
-                    title="감정별 빈도",
-                    color_discrete_sequence=colors
-                )
-                fig_pie.update_layout(height=400)
-                st.plotly_chart(fig_pie, use_container_width=True)
-        
-        # 추가 분석
-        st.subheader("📊 상세 분석")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            # 톤 분포
-            tone_counts = df['tone'].value_counts()
-            fig_tone = px.bar(
-                x=tone_counts.index,
-                y=tone_counts.values,
-                title="일기 톤 분포",
-                color=tone_counts.values,
-                color_continuous_scale='RdYlGn'
-            )
-            fig_tone.update_layout(height=300, showlegend=False)
-            st.plotly_chart(fig_tone, use_container_width=True)
-        
-        with col2:
-            # 기분 점수 히스토그램
-            fig_mood = px.histogram(
-                df,
-                x='mood',
-                nbins=15,
-                title="기분 점수 분포",
-                color_discrete_sequence=['#74c0fc']
-            )
-            fig_mood.update_layout(height=300)
-            st.plotly_chart(fig_mood, use_container_width=True)
-        
-        with col3:
-            # 스트레스 vs 활력 산점도
-            fig_scatter = px.scatter(
-                df,
-                x='stress',
-                y='energy',
-                title="스트레스 vs 활력 관계",
-                color='mood',
-                color_continuous_scale='RdYlGn',
-                hover_data=['date', 'emotions']
-            )
-            fig_scatter.update_layout(height=300)
-            st.plotly_chart(fig_scatter, use_container_width=True)
-        
-        # 통계 요약
-        st.subheader("📈 통계 요약")
-        
+        # 메트릭 표시
         col1, col2, col3, col4 = st.columns(4)
         
-        avg_stress = df['stress'].mean()
-        avg_energy = df['energy'].mean()
-        avg_mood = df['mood'].mean()
-        total_entries = len(df)
-        
         with col1:
-            st.metric(
-                "평균 스트레스", 
-                f"{avg_stress:.1f}%",
-                delta=f"{avg_stress - 50:.1f}%" if len(df) > 1 else None
-            )
-        
+            st.metric("분석 기간", f"{len(entries_to_analyze)}개 일기")
         with col2:
-            st.metric(
-                "평균 활력", 
-                f"{avg_energy:.1f}%",
-                delta=f"{avg_energy - 50:.1f}%" if len(df) > 1 else None
-            )
-        
+            st.metric("평균 스트레스", f"{avg_stress:.1f}%")
         with col3:
-            st.metric(
-                "평균 기분", 
-                f"{avg_mood:.1f}",
-                delta=f"{avg_mood:.1f}" if len(df) > 1 else None
-            )
-        
+            st.metric("평균 활력", f"{avg_energy:.1f}%")
         with col4:
-            st.metric("분석 기간", f"{total_entries}개 일기")
+            st.metric("평균 기분", f"{avg_mood:.1f}")
+        
+        # 감정 분포
+        st.subheader("😊 감정 분포")
+        
+        all_emotions = []
+        for entry in entries_to_analyze:
+            all_emotions.extend(entry['analysis']['emotions'])
+        
+        emotion_counts = {}
+        for emotion in all_emotions:
+            emotion_counts[emotion] = emotion_counts.get(emotion, 0) + 1
+        
+        # 간단한 바차트 데이터 준비
+        emotion_data = []
+        for emotion, count in emotion_counts.items():
+            emotion_data.extend([emotion] * count)
+        
+        if emotion_data:
+            # Streamlit 내장 차트 사용
+            import pandas as pd
+            emotion_df = pd.DataFrame(emotion_data, columns=['감정'])
+            emotion_counts_series = emotion_df['감정'].value_counts()
+            
+            st.bar_chart(emotion_counts_series)
+            
+            # 톤 분포
+            st.subheader("📊 일기 톤 분포")
+            tone_counts = {}
+            for entry in entries_to_analyze:
+                tone = entry['analysis'].get('tone', '중립적')
+                tone_counts[tone] = tone_counts.get(tone, 0) + 1
+            
+            tone_df = pd.DataFrame(list(tone_counts.items()), columns=['톤', '개수'])
+            st.bar_chart(tone_df.set_index('톤'))
+        
+        # 일별 변화 (간단한 라인 차트)
+        st.subheader("📈 일별 감정 변화")
+        
+        daily_data = {}
+        for entry in entries_to_analyze:
+            date = entry['date']
+            if date not in daily_data:
+                daily_data[date] = {'stress': [], 'energy': [], 'mood': []}
+            
+            daily_data[date]['stress'].append(entry['analysis']['stress_level'])
+            daily_data[date]['energy'].append(entry['analysis']['energy_level'])
+            daily_data[date]['mood'].append(entry['analysis']['mood_score'])
+        
+        # 일별 평균 계산
+        chart_data = []
+        for date, values in sorted(daily_data.items()):
+            chart_data.append({
+                'date': date,
+                'stress': sum(values['stress']) / len(values['stress']),
+                'energy': sum(values['energy']) / len(values['energy']),
+                'mood': sum(values['mood']) / len(values['mood'])
+            })
+        
+        if chart_data:
+            chart_df = pd.DataFrame(chart_data)
+            chart_df = chart_df.set_index('date')
+            
+            st.line_chart(chart_df[['stress', 'energy']])
+            
+            st.subheader("📊 기분 점수 변화")
+            st.line_chart(chart_df[['mood']])
 
 elif page == "💡 개인화 피드백":
     st.header("개인화된 피드백 & 웰빙 가이드")
@@ -832,8 +481,7 @@ elif page == "💡 개인화 피드백":
         st.info("📝 일기를 작성하면 맞춤 피드백을 받을 수 있어요!")
     else:
         # AI 피드백
-        with st.spinner("🤖 AI가 맞춤 피드백을 생성하는 중..."):
-            feedback = generate_personalized_feedback(st.session_state.diary_entries)
+        feedback = generate_simple_feedback(st.session_state.diary_entries)
         
         st.markdown(f"""
         <div class="feedback-box">
@@ -842,7 +490,7 @@ elif page == "💡 개인화 피드백":
         </div>
         """, unsafe_allow_html=True)
         
-        # 개인 통계 카드
+        # 개인 통계
         st.subheader("📊 나의 감정 여정")
         
         recent_entries = st.session_state.diary_entries[-30:]
@@ -851,20 +499,6 @@ elif page == "💡 개인화 피드백":
             avg_energy = sum(entry['analysis']['energy_level'] for entry in recent_entries) / len(recent_entries)
             avg_mood = sum(entry['analysis']['mood_score'] for entry in recent_entries) / len(recent_entries)
             
-            # 트렌드 계산
-            if len(recent_entries) >= 5:
-                recent_5 = recent_entries[-5:]
-                previous_5 = recent_entries[-10:-5] if len(recent_entries) >= 10 else recent_entries[:-5]
-                
-                if previous_5:
-                    stress_trend = avg_stress - (sum(entry['analysis']['stress_level'] for entry in previous_5) / len(previous_5))
-                    energy_trend = avg_energy - (sum(entry['analysis']['energy_level'] for entry in previous_5) / len(previous_5))
-                    mood_trend = avg_mood - (sum(entry['analysis']['mood_score'] for entry in previous_5) / len(previous_5))
-                else:
-                    stress_trend = energy_trend = mood_trend = 0
-            else:
-                stress_trend = energy_trend = mood_trend = 0
-            
             col1, col2, col3 = st.columns(3)
             
             with col1:
@@ -872,10 +506,6 @@ elif page == "💡 개인화 피드백":
                 <div class="metric-container">
                     <h3 style="color: #ff6b6b;">😰 평균 스트레스</h3>
                     <h2>{avg_stress:.1f}%</h2>
-                    <p style="color: {'red' if stress_trend > 0 else 'green' if stress_trend < 0 else 'gray'};">
-                        {'↗️' if stress_trend > 5 else '↘️' if stress_trend < -5 else '→'} 
-                        {abs(stress_trend):.1f}% {'증가' if stress_trend > 0 else '감소' if stress_trend < 0 else '유지'}
-                    </p>
                 </div>
                 """, unsafe_allow_html=True)
             
@@ -884,10 +514,6 @@ elif page == "💡 개인화 피드백":
                 <div class="metric-container">
                     <h3 style="color: #51cf66;">⚡ 평균 활력</h3>
                     <h2>{avg_energy:.1f}%</h2>
-                    <p style="color: {'green' if energy_trend > 0 else 'red' if energy_trend < 0 else 'gray'};">
-                        {'↗️' if energy_trend > 5 else '↘️' if energy_trend < -5 else '→'} 
-                        {abs(energy_trend):.1f}% {'증가' if energy_trend > 0 else '감소' if energy_trend < 0 else '유지'}
-                    </p>
                 </div>
                 """, unsafe_allow_html=True)
             
@@ -896,10 +522,6 @@ elif page == "💡 개인화 피드백":
                 <div class="metric-container">
                     <h3 style="color: #339af0;">😊 평균 기분</h3>
                     <h2>{avg_mood:.1f}</h2>
-                    <p style="color: {'green' if mood_trend > 0 else 'red' if mood_trend < 0 else 'gray'};">
-                        {'↗️' if mood_trend > 3 else '↘️' if mood_trend < -3 else '→'} 
-                        {abs(mood_trend):.1f} {'개선' if mood_trend > 0 else '하락' if mood_trend < 0 else '안정'}
-                    </p>
                 </div>
                 """, unsafe_allow_html=True)
         
@@ -912,134 +534,71 @@ elif page == "💡 개인화 피드백":
             energy_level = latest_entry['analysis']['energy_level']
             recent_emotions = latest_entry['analysis']['emotions']
             
-            # 상태에 따른 추천 활동 결정
+            # 상태에 따른 추천 활동
             if stress_level > 60:
                 recommended_activity = "스트레스 해소"
-                activity_icon = "🌊"
                 activity_description = """
-                **4-7-8 호흡법으로 마음 진정하기**
+                **🌊 4-7-8 호흡법**
                 
                 1. **4초 동안** 코로 천천히 숨 들이마시기
                 2. **7초 동안** 숨 참기 (편안하게)
                 3. **8초 동안** 입으로 천천히 내쉬기
                 4. **3-4회 반복**하며 몸의 긴장 풀어주기
-                
-                *스트레스 호르몬 분비를 줄이고 신경계를 안정시켜줍니다*
                 """
                 
             elif energy_level < 40:
                 recommended_activity = "에너지 충전"
-                activity_icon = "☀️"
                 activity_description = """
-                **활력 충전 시각화 명상**
+                **☀️ 활력 충전 명상**
                 
                 1. **편안한 자세**로 앉아 눈을 감으세요
-                2. **따뜻한 황금빛**이 머리 위에서 내려오는 상상하기
-                3. **온몸을 감싸는** 따뜻함과 에너지를 느끼기
-                4. **10분간** 이 감각에 집중하며 에너지 흡수하기
-                
-                *세로토닌 분비를 촉진하고 활력을 회복시켜줍니다*
+                2. **따뜻한 햇살**이 몸을 감싸는 상상하기
+                3. **10분간** 이 따뜻함과 에너지를 느끼기
                 """
                 
             elif "불안" in recent_emotions:
                 recommended_activity = "불안 완화"
-                activity_icon = "🌿"
                 activity_description = """
-                **5-4-3-2-1 그라운딩 기법**
+                **🌿 5-4-3-2-1 기법**
                 
-                주변에서 찾아보세요:
-                - **5개의 것**을 보기 (시각)
-                - **4개의 소리** 듣기 (청각)
-                - **3개의 질감** 만져보기 (촉각)
-                - **2개의 냄새** 맡기 (후각)
-                - **1개의 맛** 느끼기 (미각)
-                
-                *현재에 집중하며 불안을 줄여주는 효과적인 방법입니다*
+                - **5개의 것** 보기
+                - **4개의 소리** 듣기  
+                - **3개의 질감** 만져보기
+                - **2개의 냄새** 맡기
+                - **1개의 맛** 느끼기
                 """
                 
             else:
                 recommended_activity = "감사 명상"
-                activity_icon = "🙏"
                 activity_description = """
-                **감사 일기 명상**
+                **🙏 감사 일기**
                 
-                1. **오늘 하루** 중 감사한 일 3가지 떠올리기
-                2. **작은 것도 포함**하기 (맛있는 커피, 따뜻한 햇살 등)
-                3. **각각에 대해** 왜 감사한지 구체적으로 생각하기
-                4. **그 감정을** 마음에 깊이 새기기
-                
-                *행복감을 증진시키고 긍정적인 마음가짐을 기를 수 있어요*
+                1. **오늘 감사한 일** 3가지 떠올리기
+                2. **작은 것도 포함**하기
+                3. **구체적으로** 생각해보기
+                4. **마음에 새기기**
                 """
             
-            with st.expander(f"{activity_icon} **추천: {recommended_activity}**", expanded=True):
+            with st.expander(f"💡 **오늘의 추천: {recommended_activity}**", expanded=True):
                 st.markdown(activity_description)
                 
-                # 완료 체크
                 if st.button(f"✅ {recommended_activity} 완료!", key="wellness_complete"):
                     st.success("🎉 훌륭해요! 자신을 위한 시간을 가져주셔서 감사합니다.")
                     st.balloons()
-        
-        # 추가 웰빙 리소스
-        st.subheader("📚 추가 웰빙 리소스")
-        
-        wellness_tabs = st.tabs(["🧠 마음챙김", "💪 신체 활동", "🎵 음악 테라피", "📖 자기계발"])
-        
-        with wellness_tabs[0]:
-            st.markdown("""
-            **🧘‍♀️ 일일 마음챙김 루틴**
-            
-            - **아침**: 5분 호흡 명상으로 하루 시작
-            - **점심**: 식사할 때 음식의 맛과 향에 집중
-            - **저녁**: 하루를 되돌아보는 감사 시간
-            - **잠들기 전**: 바디스캔으로 몸과 마음 이완
-            """)
-        
-        with wellness_tabs[1]:
-            st.markdown("""
-            **🏃‍♀️ 기분 좋아지는 신체 활동**
-            
-            - **10분 산책**: 자연을 보며 걷기
-            - **5분 스트레칭**: 목, 어깨, 허리 풀어주기  
-            - **계단 오르기**: 심박수 올려 엔돌핀 분비
-            - **춤추기**: 좋아하는 음악에 맞춰 자유롭게
-            """)
-        
-        with wellness_tabs[2]:
-            st.markdown("""
-            **🎼 상황별 추천 음악**
-            
-            - **스트레스 해소**: 클래식, 자연 소리, 로파이
-            - **에너지 충전**: 업템포 팝, 댄스 뮤직
-            - **집중력 향상**: 백색 소음, 포커스 음악
-            - **수면 유도**: 명상 음악, ASMR
-            """)
-        
-        with wellness_tabs[3]:
-            st.markdown("""
-            **📚 성장을 위한 작은 습관**
-            
-            - **일기 쓰기**: 매일 3줄이라도 감정 기록하기
-            - **독서**: 하루 10페이지씩 읽기
-            - **새로운 학습**: 온라인 강의 10분씩 듣기
-            - **인간관계**: 소중한 사람에게 안부 묻기
-            """)
 
-elif page == "📚 일기 아카이브":
+elif page == "📚 일기 목록":
     st.header("일기 아카이브")
     
     if not st.session_state.diary_entries:
         st.info("📝 아직 작성된 일기가 없습니다.")
     else:
-        # 검색 및 필터
-        col1, col2 = st.columns(2)
+        # 검색
+        search_query = st.text_input("🔍 일기 내용 검색", placeholder="찾고 싶은 내용을 입력하세요")
         
-        with col1:
-            search_query = st.text_input("🔍 일기 내용 검색", placeholder="찾고 싶은 내용을 입력하세요")
+        # 정렬 선택
+        sort_order = st.selectbox("정렬 순서", ["최신순", "오래된순", "기분 좋은순", "기분 안 좋은순"])
         
-        with col2:
-            sort_order = st.selectbox("정렬 순서", ["최신순", "오래된순", "기분 좋은순", "기분 안 좋은순"])
-        
-        # 데이터 필터링 및 정렬
+        # 필터링
         filtered_entries = st.session_state.diary_entries.copy()
         
         if search_query:
@@ -1061,68 +620,30 @@ elif page == "📚 일기 아카이브":
         if filtered_entries:
             st.write(f"📊 총 {len(filtered_entries)}개의 일기를 찾았습니다.")
             
-            # 월별 그룹화
-            monthly_groups = {}
+            # 일기 표시
             for entry in filtered_entries:
-                month_key = entry['date'][:7]  # YYYY-MM
-                if month_key not in monthly_groups:
-                    monthly_groups[month_key] = []
-                monthly_groups[month_key].append(entry)
-            
-            # 월별 표시
-            for month, entries in sorted(monthly_groups.items(), reverse=(sort_order == "최신순")):
-                with st.expander(f"📅 {month} ({len(entries)}개 일기)", expanded=(month == max(monthly_groups.keys()))):
+                mood_emoji = "😊" if entry['analysis']['mood_score'] > 10 else "😐" if entry['analysis']['mood_score'] > -10 else "😔"
+                
+                with st.expander(f"📅 {entry['date']} {entry['time']} {mood_emoji} - {', '.join(entry['analysis']['emotions'][:2])}"):
+                    st.markdown(f"**📝 내용:**\n{entry['text']}")
                     
-                    # 월 요약 통계
-                    avg_mood = sum(entry['analysis']['mood_score'] for entry in entries) / len(entries)
-                    avg_stress = sum(entry['analysis']['stress_level'] for entry in entries) / len(entries)
-                    avg_energy = sum(entry['analysis']['energy_level'] for entry in entries) / len(entries)
+                    if entry.get('audio_data'):
+                        st.markdown("**🎵 음성 녹음:**")
+                        audio_bytes = base64.b64decode(entry['audio_data'])
+                        st.audio(audio_bytes)
+                    
+                    st.info(f"🤖 **AI 분석:** {entry['analysis']['summary']}")
                     
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("월 평균 기분", f"{avg_mood:.1f}")
+                        st.metric("스트레스", f"{entry['analysis']['stress_level']}%")
                     with col2:
-                        st.metric("월 평균 스트레스", f"{avg_stress:.1f}%")
+                        st.metric("활력", f"{entry['analysis']['energy_level']}%")
                     with col3:
-                        st.metric("월 평균 활력", f"{avg_energy:.1f}%")
+                        st.metric("기분 점수", f"{entry['analysis']['mood_score']}")
                     
-                    st.markdown("---")
-                    
-                    # 해당 월 일기들
-                    for entry in entries:
-                        mood_emoji = "😊" if entry['analysis']['mood_score'] > 10 else "😐" if entry['analysis']['mood_score'] > -10 else "😔"
-                        
-                        with st.container():
-                            st.markdown(f"""
-                            **📅 {entry['date']} {entry['time']} {mood_emoji}**  
-                            **감정:** {', '.join(entry['analysis']['emotions'])}  
-                            **내용:** {entry['text'][:100]}{'...' if len(entry['text']) > 100 else ''}
-                            """)
-                            
-                            # 상세 보기 버튼
-                            if st.button(f"자세히 보기", key=f"detail_{entry['id']}"):
-                                st.markdown("---")
-                                st.markdown(f"**📝 전체 내용:**\n{entry['text']}")
-                                
-                                if entry.get('audio_data'):
-                                    st.markdown("**🎵 음성 녹음:**")
-                                    audio_bytes = base64.b64decode(entry['audio_data'])
-                                    st.audio(audio_bytes)
-                                
-                                if 'summary' in entry['analysis']:
-                                    st.info(f"🤖 **AI 분석:** {entry['analysis']['summary']}")
-                                
-                                col1, col2, col3 = st.columns(3)
-                                with col1:
-                                    st.metric("스트레스", f"{entry['analysis']['stress_level']}%")
-                                with col2:
-                                    st.metric("활력", f"{entry['analysis']['energy_level']}%")
-                                with col3:
-                                    st.metric("기분 점수", f"{entry['analysis']['mood_score']}")
-                                
-                                st.markdown("---")
-                            
-                            st.markdown("---")
+                    if entry['analysis'].get('keywords'):
+                        st.markdown(f"**🏷️ 키워드:** {', '.join(entry['analysis']['keywords'])}")
         else:
             st.warning("검색 조건에 맞는 일기를 찾을 수 없습니다.")
 
@@ -1132,9 +653,10 @@ with st.sidebar:
         st.markdown("---")
         st.markdown("### 💾 데이터 관리")
         
-        # 통계 내보내기
-        if st.button("📊 통계 리포트 생성"):
-            # 데이터프레임 생성
+        # 통계 리포트 생성
+        if st.button("📊 CSV 다운로드"):
+            import pandas as pd
+            
             df_export = pd.DataFrame([
                 {
                     'date': entry['date'],
@@ -1144,8 +666,6 @@ with st.sidebar:
                     'stress_level': entry['analysis']['stress_level'],
                     'energy_level': entry['analysis']['energy_level'],
                     'mood_score': entry['analysis']['mood_score'],
-                    'summary': entry['analysis'].get('summary', ''),
-                    'keywords': ', '.join(entry['analysis'].get('keywords', [])),
                     'tone': entry['analysis'].get('tone', '중립적')
                 }
                 for entry in st.session_state.diary_entries
@@ -1153,14 +673,14 @@ with st.sidebar:
             
             csv = df_export.to_csv(index=False, encoding='utf-8-sig')
             st.download_button(
-                label="📁 CSV로 다운로드",
+                label="📁 CSV 파일 다운로드",
                 data=csv,
-                file_name=f"voice_diary_report_{datetime.now().strftime('%Y%m%d')}.csv",
+                file_name=f"voice_diary_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime='text/csv'
             )
         
-        # 백업 저장
-        if st.button("💾 전체 데이터 백업"):
+        # 전체 백업
+        if st.button("💾 전체 백업"):
             backup_data = {
                 'entries': st.session_state.diary_entries,
                 'export_date': datetime.now().isoformat(),
@@ -1176,8 +696,8 @@ with st.sidebar:
         
         # 데이터 초기화
         st.markdown("---")
-        if st.button("🗑️ 모든 데이터 삭제", type="secondary"):
-            if st.checkbox("⚠️ 정말로 모든 데이터를 삭제하시겠습니까?"):
+        if st.button("🗑️ 모든 데이터 삭제"):
+            if st.checkbox("⚠️ 정말로 삭제하시겠습니까?"):
                 st.session_state.diary_entries = []
                 st.success("✅ 모든 데이터가 삭제되었습니다.")
                 st.rerun()
@@ -1186,8 +706,7 @@ with st.sidebar:
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #666; padding: 2rem 0;">
-    <p>🎙️ <strong>소리일기</strong> - AI와 함께하는 감정 여정</p>
-    <p>매일 조금씩, 나를 더 잘 알아가는 시간을 가져보세요 ✨</p>
-    <small>Made with ❤️ using Streamlit & OpenAI</small>
+    <p>🎙️ <strong>소리일기</strong> - 간소 버전</p>
+    <p>Streamlit Cloud 최적화 버전으로 안정적인 서비스를 제공합니다 ✨</p>
 </div>
 """, unsafe_allow_html=True)
