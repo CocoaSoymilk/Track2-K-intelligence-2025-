@@ -29,7 +29,7 @@ except ImportError:
 
 # 페이지 설정
 st.set_page_config(
-    page_title="소리일기",
+    page_title="소리로 쓰는 하루",
     page_icon="🎙️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -181,25 +181,25 @@ def analyze_emotion_with_gpt(text: str) -> Dict:
             messages=[
                 {
                     "role": "system",
-                    "content": """당신은 한국어 음성 일기를 분석하는 전문가입니다. 
-                    다음 텍스트를 분석하여 정확한 JSON 형식으로 응답해주세요.
+                    "content": """당신은 "소리로 쓰는 하루" 서비스의 따뜻하고 공감적인 AI 마음 분석가입니다. 
+                    사용자가 음성이나 글로 들려준 하루 이야기를 분석하여 정확한 JSON 형식으로 응답해주세요.
                     
                     응답 형식:
                     {
                         "emotions": ["기쁨", "슬픔", "분노", "불안", "평온", "중립" 중 해당하는 것들의 배열],
                         "stress_level": 스트레스 수치 (0-100의 정수),
                         "energy_level": 에너지 수치 (0-100의 정수),
-                        "mood_score": 전체적인 기분 점수 (-70부터 +70 사이의 정수),
-                        "summary": "한두 문장으로 요약한 감정 상태",
+                        "mood_score": 전체적인 마음 점수 (-70부터 +70 사이의 정수),
+                        "summary": "따뜻하고 공감적인 톤으로 한두 문장 요약",
                         "keywords": ["핵심 키워드들"],
                         "tone": "긍정적" 또는 "중립적" 또는 "부정적"
                     }
                     
-                    텍스트의 어조, 내용, 상황을 종합적으로 고려하여 정확히 분석해주세요."""
+                    사용자의 마음을 깊이 이해하고, 따뜻하게 공감하는 분석을 해주세요."""
                 },
                 {
                     "role": "user",
-                    "content": f"다음 일기를 분석해주세요: {text}"
+                    "content": f"오늘의 이야기를 들어주세요: {text}"
                 }
             ],
             temperature=0.3,
@@ -325,19 +325,19 @@ def generate_personalized_feedback(entries: List[Dict]) -> str:
             messages=[
                 {
                     "role": "system",
-                    "content": """당신은 따뜻하고 공감적인 AI 멘탈 헬스 코치입니다. 
-                    사용자의 최근 일주일간 감정 데이터를 분석하여 다음을 제공하세요:
+                    "content": """당신은 "소리로 쓰는 하루" 서비스의 따뜻하고 공감적인 AI 마음 케어 코치입니다. 
+                    사용자의 최근 일주일간 마음 데이터를 분석하여 다음을 제공하세요:
                     
-                    1. 감정 패턴에 대한 관찰 (1-2문장)
-                    2. 구체적이고 실용적인 조언 (1-2문장)
-                    3. 격려의 메시지 (1문장)
+                    1. 마음 패턴에 대한 따뜻한 관찰 (1-2문장)
+                    2. 구체적이고 실용적인 마음 케어 조언 (1-2문장)
+                    3. 격려와 위로의 메시지 (1문장)
                     
                     전체 3-4문장으로, 친근하고 따뜻한 톤으로 작성해주세요.
-                    의학적 진단이나 치료를 언급하지 말고, 일상적인 웰빙 조언에 집중하세요."""
+                    의학적 진단이나 치료를 언급하지 말고, 일상적인 마음 케어 조언에 집중하세요."""
                 },
                 {
                     "role": "user",
-                    "content": f"최근 일주일간의 감정 데이터를 분석해주세요:\n{json.dumps(summary_data, ensure_ascii=False, indent=2)}"
+                    "content": f"최근 일주일간의 마음 데이터를 살펴봐 주세요:\n{json.dumps(summary_data, ensure_ascii=False, indent=2)}"
                 }
             ],
             temperature=0.7,
@@ -380,8 +380,9 @@ def generate_basic_feedback(entries: List[Dict]) -> str:
 # 메인 헤더
 st.markdown("""
 <div class="main-header">
-    <h1>🎙️ 소리일기</h1>
-    <p>하루를 음성으로 기록하고, AI가 분석해주는 나만의 감정 아카이브</p>
+    <h1>🎙️ 소리로 쓰는 하루</h1>
+    <p>목소리로 담는 오늘, AI가 읽어주는 마음</p>
+    <small style="opacity: 0.8;">하루 1분, 내 마음을 알아가는 시간</small>
 </div>
 """, unsafe_allow_html=True)
 
@@ -390,6 +391,7 @@ if not openai_client:
     with st.sidebar:
         st.warning("🔑 OpenAI API 키가 필요합니다")
         with st.expander("API 키 입력하기"):
+            st.markdown("**소리로 쓰는 하루**의 AI 감정 분석을 위해 OpenAI API 키가 필요해요.")
             api_key = st.text_input("OpenAI API 키", type="password", help="sk-로 시작하는 API 키를 입력하세요")
             if st.button("저장"):
                 if api_key.startswith("sk-"):
@@ -400,24 +402,24 @@ if not openai_client:
                 else:
                     st.error("올바른 API 키 형식이 아닙니다.")
         
-        st.info("💡 API 키 없이도 기본 기능을 체험할 수 있습니다.")
+        st.info("💡 API 키 없이도 기본 감정 분석 기능을 체험할 수 있어요.")
 
 # 사이드바 네비게이션
 with st.sidebar:
-    st.title("📱 메뉴")
+    st.title("🌟 오늘의 마음")
     
     # 오늘 일기 작성 여부 확인
     today = datetime.now().strftime("%Y-%m-%d")
     today_entries = [entry for entry in st.session_state.diary_entries if entry['date'] == today]
     
     if today_entries:
-        st.success(f"✅ 오늘 {len(today_entries)}개 일기 작성됨")
+        st.success(f"✅ 오늘 {len(today_entries)}번의 마음을 기록했어요")
     else:
-        st.info("📝 오늘 아직 일기를 작성하지 않았어요")
+        st.info("💭 오늘의 이야기를 들려주세요")
     
     page = st.selectbox(
         "페이지 선택",
-        ["🎙️ 오늘의 일기", "📊 감정 분석", "📈 감정 그래프", "💡 개인화 피드백", "📚 일기 아카이브"],
+        ["🎙️ 오늘의 이야기", "💖 마음 분석", "📈 감정 여정", "💡 마음 케어", "📚 나의 이야기들"],
         help="원하는 페이지를 선택하세요"
     )
     
@@ -425,66 +427,66 @@ with st.sidebar:
     
     # 통계 요약
     if st.session_state.diary_entries:
-        st.markdown("### 📊 나의 통계")
+        st.markdown("### 📊 나의 여정")
         total_entries = len(st.session_state.diary_entries)
-        st.metric("전체 일기 수", f"{total_entries}개")
+        st.metric("기록한 이야기", f"{total_entries}개")
         
         if total_entries > 0:
             latest_entry = st.session_state.diary_entries[-1]
             days_since_start = (datetime.now() - datetime.strptime(st.session_state.diary_entries[0]['date'], "%Y-%m-%d")).days + 1
-            st.metric("연속 기록", f"{days_since_start}일차")
+            st.metric("함께한 날들", f"{days_since_start}일째")
             
             # 최근 감정 상태
             recent_mood = latest_entry['analysis'].get('tone', '중립적')
             mood_emoji = {"긍정적": "😊", "중립적": "😐", "부정적": "😔"}
-            st.metric("최근 기분", f"{mood_emoji.get(recent_mood, '😐')} {recent_mood}")
+            st.metric("지금의 마음", f"{mood_emoji.get(recent_mood, '😐')} {recent_mood}")
 
 # 페이지별 콘텐츠
-if page == "🎙️ 오늘의 일기":
+if page == "🎙️ 오늘의 이야기":
     st.header("오늘 하루는 어떠셨나요?")
     
     col1, col2 = st.columns([2, 1])
     
     with col1:
         st.markdown("""
-        **📝 일기 작성 가이드:**
-        - 1분 이내로 자유롭게 이야기해보세요
-        - 오늘 있었던 일, 느낀 감정을 솔직하게
-        - 특별한 일이 없어도 괜찮아요!
+        **💝 마음을 나누는 시간:**
+        - 1분만 투자해보세요, 당신의 이야기가 소중해요
+        - 오늘 있었던 일, 느낀 감정을 자유롭게 말해보세요
+        - 특별한 일이 없어도 괜찮아요, 평범한 하루도 의미 있어요
         """)
     
     with col2:
         # 오늘 작성한 일기 수
         if today_entries:
-            st.info(f"🎯 오늘 {len(today_entries)}번째 일기")
+            st.info(f"🌟 오늘 {len(today_entries)}번째 이야기")
         else:
-            st.info("🎯 오늘 첫 번째 일기")
+            st.info("🌱 오늘 첫 번째 이야기")
     
     # 음성 녹음 섹션
-    st.markdown("### 🎙️ 음성으로 일기 작성하기")
+    st.markdown("### 🎙️ 목소리로 들려주세요")
     
     with st.container():
         st.markdown('<div class="recording-container">', unsafe_allow_html=True)
         
         # Streamlit 내장 음성 입력 사용
         audio_value = st.audio_input(
-            "🎤 버튼을 눌러 녹음을 시작하세요",
-            help="마이크 권한을 허용하고 녹음 버튼을 클릭하세요"
+            "🎤 마음을 편하게 말해보세요",
+            help="마이크 버튼을 눌러 녹음을 시작하세요. 마음이 편안해질 때까지 천천히 이야기해도 좋아요"
         )
         
         st.markdown('</div>', unsafe_allow_html=True)
     
     # 텍스트 입력 대안
-    st.markdown("### ✏️ 또는 텍스트로 작성하기")
+    st.markdown("### ✏️ 또는 글로 적어보세요")
     text_input = st.text_area(
-        "직접 입력하기",
-        placeholder="오늘 하루 어떠셨나요? 자유롭게 써보세요...",
+        "마음을 글로 표현해보세요",
+        placeholder="오늘은 어떤 하루였나요? 느낀 감정이나 생각을 자유롭게 써보세요...",
         height=120,
-        help="음성 녹음이 어려우신 경우 직접 입력하실 수 있어요"
+        help="목소리 대신 글로 마음을 표현하셔도 좋아요"
     )
     
     # 일기 저장 버튼
-    if st.button("📝 일기 분석하고 저장하기", type="primary", use_container_width=True):
+    if st.button("💝 마음 분석하고 소중히 보관하기", type="primary", use_container_width=True):
         diary_text = ""
         audio_data = None
         
@@ -493,23 +495,23 @@ if page == "🎙️ 오늘의 일기":
             audio_bytes = audio_value.read()
             audio_data = base64.b64encode(audio_bytes).decode()
             
-            with st.spinner("🤖 음성을 텍스트로 변환하는 중..."):
+            with st.spinner("🤖 당신의 목소리를 마음으로 변환하는 중..."):
                 if openai_client:
                     diary_text = transcribe_audio_with_whisper(audio_bytes)
                     if diary_text:
-                        st.success("✅ 음성이 성공적으로 변환되었습니다!")
-                        st.info(f"**변환된 텍스트:** {diary_text}")
+                        st.success("✅ 목소리가 글로 바뀌었어요!")
+                        st.info(f"**들은 이야기:** {diary_text}")
                     else:
-                        st.error("음성 변환에 실패했습니다. 텍스트로 입력해주세요.")
+                        st.error("음성 변환에 실패했어요. 글로 적어주실 수 있나요?")
                 else:
-                    st.warning("API 키가 없어 음성 변환을 할 수 없습니다. 텍스트로 입력해주세요.")
+                    st.warning("API 키가 없어 음성 변환을 할 수 없어요. 글로 적어주세요.")
         
         # 텍스트 입력 처리
         if not diary_text and text_input.strip():
             diary_text = text_input.strip()
         
         if diary_text:
-            with st.spinner("🤖 AI가 감정을 분석하는 중..."):
+            with st.spinner("🤖 AI가 당신의 마음을 읽고 있어요..."):
                 analysis = analyze_emotion_with_gpt(diary_text)
             
             # 일기 저장
@@ -526,27 +528,27 @@ if page == "🎙️ 오늘의 일기":
             st.session_state.diary_entries.append(entry)
             
             # 결과 표시
-            st.success("🎉 일기가 저장되었습니다!")
+            st.success("🎉 소중한 이야기가 안전하게 보관되었어요!")
             
             # 분석 결과 표시
             st.markdown("---")
-            st.markdown("## 🤖 AI 분석 결과")
+            st.markdown("## 🤖 AI가 읽어드린 당신의 마음")
             
             col1, col2, col3 = st.columns(3)
             
             with col1:
                 st.markdown(f"""
                 <div class="emotion-card">
-                    <h4>😊 감지된 감정</h4>
+                    <h4>💖 감지된 감정</h4>
                     <p><strong>{', '.join(analysis['emotions'])}</strong></p>
-                    <small>키워드: {', '.join(analysis.get('keywords', [])[:3])}</small>
+                    <small>핵심 단어: {', '.join(analysis.get('keywords', [])[:3])}</small>
                 </div>
                 """, unsafe_allow_html=True)
             
             with col2:
                 st.markdown(f"""
                 <div class="emotion-card">
-                    <h4>📊 상태 지수</h4>
+                    <h4>📊 마음 상태</h4>
                     <p>스트레스: <strong>{analysis['stress_level']}%</strong></p>
                     <p>활력: <strong>{analysis['energy_level']}%</strong></p>
                 </div>
@@ -555,9 +557,9 @@ if page == "🎙️ 오늘의 일기":
             with col3:
                 st.markdown(f"""
                 <div class="emotion-card">
-                    <h4>🎯 전체 평가</h4>
-                    <p>기분 점수: <strong>{analysis['mood_score']}</strong></p>
-                    <p>톤: <strong>{analysis.get('tone', '중립적')}</strong></p>
+                    <h4>🎯 오늘의 컨디션</h4>
+                    <p>마음 점수: <strong>{analysis['mood_score']}</strong></p>
+                    <p>전체 느낌: <strong>{analysis.get('tone', '중립적')}</strong></p>
                 </div>
                 """, unsafe_allow_html=True)
             
@@ -565,19 +567,19 @@ if page == "🎙️ 오늘의 일기":
             if 'summary' in analysis:
                 st.markdown(f"""
                 <div class="feedback-box">
-                    <h4>🤖 AI 요약</h4>
+                    <h4>🤖 AI가 전해드리는 말</h4>
                     <p>{analysis['summary']}</p>
                 </div>
                 """, unsafe_allow_html=True)
             
         else:
-            st.warning("⚠️ 음성을 녹음하거나 텍스트를 입력해주세요!")
+            st.warning("⚠️ 목소리나 글로 마음을 들려주세요!")
 
-elif page == "📊 감정 분석":
-    st.header("감정 분석 대시보드")
+elif page == "💖 마음 분석":
+    st.header("마음 분석 대시보드")
     
     if not st.session_state.diary_entries:
-        st.info("📝 아직 작성된 일기가 없습니다. 첫 번째 일기를 작성해보세요!")
+        st.info("📝 아직 기록된 이야기가 없어요. 첫 번째 이야기를 들려주세요!")
     else:
         # 필터 옵션
         col1, col2, col3 = st.columns(3)
@@ -674,11 +676,11 @@ elif page == "📊 감정 분석":
                     if entry['analysis'].get('keywords'):
                         st.markdown(f"**🏷️ 키워드:** {', '.join(entry['analysis']['keywords'])}")
 
-elif page == "📈 감정 그래프":
-    st.header("감정 변화 그래프")
+elif page == "📈 감정 여정":
+    st.header("마음의 변화를 살펴보세요")
     
     if not st.session_state.diary_entries:
-        st.info("📊 일기를 작성하면 감정 변화를 시각적으로 확인할 수 있어요!")
+        st.info("📊 이야기를 기록하면 마음의 변화를 아름다운 그래프로 볼 수 있어요!")
     else:
         # 기간 선택
         period_options = {
@@ -871,25 +873,25 @@ elif page == "📈 감정 그래프":
         with col4:
             st.metric("분석 기간", f"{total_entries}개 일기")
 
-elif page == "💡 개인화 피드백":
-    st.header("개인화된 피드백 & 웰빙 가이드")
+elif page == "💡 마음 케어":
+    st.header("당신만을 위한 마음 케어")
     
     if not st.session_state.diary_entries:
-        st.info("📝 일기를 작성하면 맞춤 피드백을 받을 수 있어요!")
+        st.info("📝 이야기를 기록하면 AI가 당신만의 맞춤 케어를 추천해드려요!")
     else:
         # AI 피드백
-        with st.spinner("🤖 AI가 맞춤 피드백을 생성하는 중..."):
+        with st.spinner("🤖 AI가 당신만의 마음 케어 방법을 찾고 있어요..."):
             feedback = generate_personalized_feedback(st.session_state.diary_entries)
         
         st.markdown(f"""
         <div class="feedback-box">
-            <h3>🤖 AI 멘탈 헬스 코치의 피드백</h3>
+            <h3>🤖 AI 마음 케어 코치의 메시지</h3>
             <p style="font-size: 1.1em; line-height: 1.6;">{feedback}</p>
         </div>
         """, unsafe_allow_html=True)
         
         # 개인 통계 카드
-        st.subheader("📊 나의 감정 여정")
+        st.subheader("📊 나의 마음 여정 리포트")
         
         recent_entries = st.session_state.diary_entries[-30:]
         if recent_entries:
@@ -1070,20 +1072,20 @@ elif page == "💡 개인화 피드백":
             - **인간관계**: 소중한 사람에게 안부 묻기
             """)
 
-elif page == "📚 일기 아카이브":
-    st.header("일기 아카이브")
+elif page == "📚 나의 이야기들":
+    st.header("소중한 이야기 아카이브")
     
     if not st.session_state.diary_entries:
-        st.info("📝 아직 작성된 일기가 없습니다.")
+        st.info("📝 아직 기록된 이야기가 없어요.")
     else:
         # 검색 및 필터
         col1, col2 = st.columns(2)
         
         with col1:
-            search_query = st.text_input("🔍 일기 내용 검색", placeholder="찾고 싶은 내용을 입력하세요")
+            search_query = st.text_input("🔍 이야기 내용 검색", placeholder="찾고 싶은 기억을 검색해보세요")
         
         with col2:
-            sort_order = st.selectbox("정렬 순서", ["최신순", "오래된순", "기분 좋은순", "기분 안 좋은순"])
+            sort_order = st.selectbox("정렬 순서", ["최신순", "오래된순", "기분 좋은순", "힘들었던순"])
         
         # 데이터 필터링 및 정렬
         filtered_entries = st.session_state.diary_entries.copy()
@@ -1101,11 +1103,11 @@ elif page == "📚 일기 아카이브":
             filtered_entries = sorted(filtered_entries, key=lambda x: x['timestamp'])
         elif sort_order == "기분 좋은순":
             filtered_entries = sorted(filtered_entries, key=lambda x: x['analysis']['mood_score'], reverse=True)
-        elif sort_order == "기분 안 좋은순":
+        elif sort_order == "힘들었던순":
             filtered_entries = sorted(filtered_entries, key=lambda x: x['analysis']['mood_score'])
         
         if filtered_entries:
-            st.write(f"📊 총 {len(filtered_entries)}개의 일기를 찾았습니다.")
+            st.write(f"📊 총 {len(filtered_entries)}개의 소중한 이야기를 찾았어요.")
             
             # 월별 그룹화
             monthly_groups = {}
@@ -1117,7 +1119,7 @@ elif page == "📚 일기 아카이브":
             
             # 월별 표시
             for month, entries in sorted(monthly_groups.items(), reverse=(sort_order == "최신순")):
-                with st.expander(f"📅 {month} ({len(entries)}개 일기)", expanded=(month == max(monthly_groups.keys()))):
+                with st.expander(f"📅 {month} ({len(entries)}개 이야기)", expanded=(month == max(monthly_groups.keys()))):
                     
                     # 월 요약 통계
                     avg_mood = sum(entry['analysis']['mood_score'] for entry in entries) / len(entries)
@@ -1126,11 +1128,11 @@ elif page == "📚 일기 아카이브":
                     
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("월 평균 기분", f"{avg_mood:.1f}")
+                        st.metric("이 달의 평균 마음", f"{avg_mood:.1f}")
                     with col2:
-                        st.metric("월 평균 스트레스", f"{avg_stress:.1f}%")
+                        st.metric("이 달의 평균 스트레스", f"{avg_stress:.1f}%")
                     with col3:
-                        st.metric("월 평균 활력", f"{avg_energy:.1f}%")
+                        st.metric("이 달의 평균 활력", f"{avg_energy:.1f}%")
                     
                     st.markdown("---")
                     
@@ -1141,22 +1143,22 @@ elif page == "📚 일기 아카이브":
                         with st.container():
                             st.markdown(f"""
                             **📅 {entry['date']} {entry['time']} {mood_emoji}**  
-                            **감정:** {', '.join(entry['analysis']['emotions'])}  
-                            **내용:** {entry['text'][:100]}{'...' if len(entry['text']) > 100 else ''}
+                            **마음:** {', '.join(entry['analysis']['emotions'])}  
+                            **이야기:** {entry['text'][:100]}{'...' if len(entry['text']) > 100 else ''}
                             """)
                             
                             # 상세 보기 버튼
-                            if st.button(f"자세히 보기", key=f"detail_{entry['id']}"):
+                            if st.button(f"💝 자세히 보기", key=f"detail_{entry['id']}"):
                                 st.markdown("---")
-                                st.markdown(f"**📝 전체 내용:**\n{entry['text']}")
+                                st.markdown(f"**📖 전체 이야기:**\n{entry['text']}")
                                 
                                 if entry.get('audio_data'):
-                                    st.markdown("**🎵 음성 녹음:**")
+                                    st.markdown("**🎵 당시의 목소리:**")
                                     audio_bytes = base64.b64decode(entry['audio_data'])
                                     st.audio(audio_bytes)
                                 
                                 if 'summary' in entry['analysis']:
-                                    st.info(f"🤖 **AI 분석:** {entry['analysis']['summary']}")
+                                    st.info(f"🤖 **AI가 읽어드린 마음:** {entry['analysis']['summary']}")
                                 
                                 col1, col2, col3 = st.columns(3)
                                 with col1:
@@ -1164,22 +1166,22 @@ elif page == "📚 일기 아카이브":
                                 with col2:
                                     st.metric("활력", f"{entry['analysis']['energy_level']}%")
                                 with col3:
-                                    st.metric("기분 점수", f"{entry['analysis']['mood_score']}")
+                                    st.metric("마음 점수", f"{entry['analysis']['mood_score']}")
                                 
                                 st.markdown("---")
                             
                             st.markdown("---")
         else:
-            st.warning("검색 조건에 맞는 일기를 찾을 수 없습니다.")
+            st.warning("찾으시는 이야기가 없네요. 다른 검색어로 시도해보세요.")
 
 # 사이드바 - 데이터 관리
 with st.sidebar:
     if st.session_state.diary_entries:
         st.markdown("---")
-        st.markdown("### 💾 데이터 관리")
+        st.markdown("### 💾 소중한 기록 관리")
         
         # 통계 내보내기
-        if st.button("📊 통계 리포트 생성"):
+        if st.button("📊 마음 리포트 생성"):
             # 데이터프레임 생성
             df_export = pd.DataFrame([
                 {
@@ -1199,41 +1201,42 @@ with st.sidebar:
             
             csv = df_export.to_csv(index=False, encoding='utf-8-sig')
             st.download_button(
-                label="📁 CSV로 다운로드",
+                label="📁 마음 리포트 다운로드",
                 data=csv,
-                file_name=f"voice_diary_report_{datetime.now().strftime('%Y%m%d')}.csv",
+                file_name=f"소리로_쓰는_하루_리포트_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime='text/csv'
             )
         
         # 백업 저장
-        if st.button("💾 전체 데이터 백업"):
+        if st.button("💾 전체 이야기 백업"):
             backup_data = {
+                'service_name': '소리로 쓰는 하루',
                 'entries': st.session_state.diary_entries,
                 'export_date': datetime.now().isoformat(),
                 'total_count': len(st.session_state.diary_entries)
             }
             backup_json = json.dumps(backup_data, ensure_ascii=False, indent=2, default=str)
             st.download_button(
-                label="📦 JSON 백업 다운로드",
+                label="📦 백업 파일 다운로드",
                 data=backup_json,
-                file_name=f"voice_diary_backup_{datetime.now().strftime('%Y%m%d')}.json",
+                file_name=f"소리로_쓰는_하루_백업_{datetime.now().strftime('%Y%m%d')}.json",
                 mime='application/json'
             )
         
         # 데이터 초기화
         st.markdown("---")
-        if st.button("🗑️ 모든 데이터 삭제", type="secondary"):
-            if st.checkbox("⚠️ 정말로 모든 데이터를 삭제하시겠습니까?"):
+        if st.button("🗑️ 모든 기록 삭제", type="secondary"):
+            if st.checkbox("⚠️ 정말로 소중한 모든 이야기를 삭제하시겠어요?"):
                 st.session_state.diary_entries = []
-                st.success("✅ 모든 데이터가 삭제되었습니다.")
+                st.success("✅ 모든 기록이 삭제되었어요. 새로운 시작이에요!")
                 st.rerun()
 
 # 푸터
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #666; padding: 2rem 0;">
-    <p>🎙️ <strong>소리일기</strong> - AI와 함께하는 감정 여정</p>
-    <p>매일 조금씩, 나를 더 잘 알아가는 시간을 가져보세요 ✨</p>
-    <small>Made with ❤️ using Streamlit & OpenAI</small>
+    <p>🎙️ <strong>소리로 쓰는 하루</strong> - 목소리로 담는 오늘, AI가 읽어주는 마음</p>
+    <p>하루 1분, 당신의 소중한 이야기를 들려주세요 ✨</p>
+    <small style="color: #999;">Made with ❤️ using Streamlit & OpenAI</small>
 </div>
 """, unsafe_allow_html=True)
