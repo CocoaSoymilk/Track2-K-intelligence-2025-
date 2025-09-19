@@ -520,6 +520,87 @@ def generate_llm_coach_report(text: str, combined: Dict, recent: Optional[List[D
     try:
         history_blob = []
         if recent:
+            for e in recent[-5:]:
+                a = e.get("analysis", {})
+                history_blob.append({
+                    "date": e.get("date"),
+                    "tone": a.get("tone"),
+                    "stress": a.get("stress_level"),
+                    "energy": a.get("energy_level"),
+                    "mood": a.get("mood_score"),
+                })
+
+        sys = """
+당신은 따뜻한 한국어 코치입니다. 텍스트는 감정 라벨의 기준이며, 음성은 각성/긴장/안정의 보조지표로만 고려하세요.
+아래 정보를 종합해 JSON으로만 답하세요. 라벨(기쁨/슬픔/분노/불안/평온/중립)은 바꾸지 말고,
+상태 요약과 2~4개의 구체 추천, 동기부여 한 줄을 생성하세요. 최근 기록이 있으면 짧게 반영하세요.
+"""
+        user_payload = {
+            "text": text,
+            "text_analysis": {
+                "emotions": combined.get("emotions", []),
+                "stress": combined.get("stress_level", 30),
+                "energy": combined.get("energy_level", 50),
+                "mood": combined.get("mood_score", 0),
+                "tone": combined.get("tone", "중립적"),
+            },
+            "voice_cues": {
+                "arousal": int(cues.get("arousal", 50)),
+                "tension": int(cues.get("tension", 50)),
+                "stability": int(cues.get("stability", 50)),
+                "quality": float(cues.get("quality", 0.5)),
+            },
+            "recent_summary": history_blob,
+        }
+        schema_hint = """
+다음 JSON 스키마로만 응답:
+{
+  "state": "안정/회복|고스트레스|긴장 과다|과흥분/과부하 가능|저활력|저각성|중립",
+  "summary": "한두 문장 요약",
+  "positives": ["..."],
+  "recommendations": ["간결한 실행 문장"],
+  "motivation": "짧은 격려 문장"
+}
+"""
+
+        resp = openai_client.chat.completions.create(
+            model="gpt-4o",
+            temperature=0.4,
+            max_tokens=700,
+            messages=[
+                {"role": "system", "content": sys},
+                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+                {"role": "system", "content": schema_hint},
+            ],
+        )
+        content = resp.choices[0].message.content.strip()
+        if "```" in content:
+            parts = content.split("```")
+            data = None
+            for part in parts:
+                try:
+                    data = json.loads(part)
+                    break
+                except Exception:
+                    continue
+            if data is None:
+                data = json.loads(parts[-1])
+        else:
+            data = json.loads(content)
+        data.setdefault("state", "중립")
+        data.setdefault("summary", "오늘의 상태를 차분히 정리했어요.")
+        data.setdefault("positives", [])
+        data.setdefault("recommendations", [])
+        data.setdefault("motivation", "작은 걸음이 큰 변화를 만듭니다.")
+        data["recommendations"] = data.get("recommendations", [])[:4]
+        data["positives"] = data.get("positives", [])[:4]
+        return data
+    except Exception:
+        return assess_mental_state(text, combined)
+cues = combined.get("voice_analysis", {}).get("voice_cues", {})
+    try:
+        history_blob = []
+        if recent:
             # keep small, anonymized summary for context (last 5)
             for e in recent[-5:]:
                 a = e.get("analysis", {})
