@@ -500,86 +500,86 @@ class EmotionAnalyzer:
         return score / feature_count if feature_count > 0 else 0.0
     
     def _calculate_stress_level(self, features: Dict, emotion_scores: Dict) -> int:
-        """음성 기반 스트레스 레벨 계산 (0-100)"""
-        base_stress = 30
+        """음성 기반 스트레스 레벨 계산 (0-100) - 보조적 역할"""
+        base_stress = 20  # 기본값을 낮춤
         
-        # 감정별 스트레스 가중치
+        # 감정별 스트레스 가중치 (완화)
         stress_weights = {
-            '분노': 35,
-            '불안': 30,
-            '슬픔': 20,
-            '기쁨': -15,
-            '평온': -20
+            '분노': 25,      # 35 -> 25
+            '불안': 20,      # 30 -> 20  
+            '슬픔': 15,      # 20 -> 15
+            '기쁨': -20,     # -15 -> -20 (긍정 보상 증가)
+            '평온': -25      # -20 -> -25 (평온 보상 증가)
         }
         
         for emotion, weight in stress_weights.items():
             if emotion in emotion_scores:
-                base_stress += weight * emotion_scores[emotion]
+                base_stress += weight * emotion_scores[emotion] * 0.6  # 음성 영향력 감소
         
-        # 음성 피처 기반 조정
-        if features.get('jitter', 0) > 0.02:  # 높은 jitter = 높은 스트레스
-            base_stress += 15
+        # 음성 피처 기반 조정 (완화)
+        if features.get('jitter', 0) > 0.025:  # 임계값 상향 (0.02 -> 0.025)
+            base_stress += 8  # 페널티 감소 (15 -> 8)
         
-        if features.get('pitch_variation', 0) > 0.25:  # 높은 피치 변동성
-            base_stress += 10
+        if features.get('pitch_variation', 0) > 0.30:  # 임계값 상향 (0.25 -> 0.30)
+            base_stress += 5  # 페널티 감소 (10 -> 5)
         
         return max(0, min(100, int(base_stress)))
     
     def _calculate_energy_level(self, features: Dict, emotion_scores: Dict) -> int:
-        """음성 기반 에너지 레벨 계산 (0-100)"""
-        base_energy = 50
+        """음성 기반 에너지 레벨 계산 (0-100) - 보조적 역할"""
+        base_energy = 55  # 기본값을 약간 상향
         
-        # 감정별 에너지 가중치
+        # 감정별 에너지 가중치 (긍정 감정 보강)
         energy_weights = {
-            '기쁨': 25,
-            '분노': 30,
-            '불안': 10,
-            '슬픔': -25,
-            '평온': -5
+            '기쁨': 30,      # 25 -> 30 (긍정 보상 증가)
+            '분노': 20,      # 30 -> 20 (분노는 에너지보다 스트레스)
+            '불안': 5,       # 10 -> 5
+            '슬픔': -20,     # -25 -> -20 (완화)
+            '평온': 0        # -5 -> 0 (평온은 중립적)
         }
         
         for emotion, weight in energy_weights.items():
             if emotion in emotion_scores:
-                base_energy += weight * emotion_scores[emotion]
+                base_energy += weight * emotion_scores[emotion] * 0.7  # 음성 영향력 적당히 제한
         
-        # 음성 피처 기반 조정
+        # 음성 피처 기반 조정 (완화)
         energy_mean = features.get('energy_mean', 0.1)
-        if energy_mean > 0.2:  # 높은 에너지
-            base_energy += 15
-        elif energy_mean < 0.08:  # 낮은 에너지
-            base_energy -= 15
+        if energy_mean > 0.25:  # 임계값 상향 (0.2 -> 0.25)
+            base_energy += 10  # 보상 감소 (15 -> 10)
+        elif energy_mean < 0.06:  # 임계값 하향 (0.08 -> 0.06)
+            base_energy -= 10  # 페널티 감소 (15 -> 10)
         
         tempo = features.get('tempo', 120)
-        if tempo > 140:  # 빠른 템포
-            base_energy += 10
-        elif tempo < 100:  # 느린 템포
-            base_energy -= 10
+        if tempo > 150:  # 임계값 상향 (140 -> 150)
+            base_energy += 8  # 보상 감소 (10 -> 8)
+        elif tempo < 90:  # 임계값 하향 (100 -> 90)
+            base_energy -= 8  # 페널티 감소 (10 -> 8)
         
         return max(0, min(100, int(base_energy)))
     
     def _calculate_mood_score(self, features: Dict, emotion_scores: Dict) -> int:
-        """음성 기반 기분 점수 계산 (-70 to +70)"""
-        base_mood = 0
+        """음성 기반 기분 점수 계산 (-70 to +70) - 보조적 역할"""
+        base_mood = 5  # 약간 긍정적 기본값
         
-        # 감정별 기분 가중치
+        # 감정별 기분 가중치 (긍정 감정 강화)
         mood_weights = {
-            '기쁨': 40,
-            '평온': 20,
-            '슬픔': -35,
-            '분노': -25,
-            '불안': -20
+            '기쁨': 45,      # 40 -> 45 (긍정 보상 증가)
+            '평온': 25,      # 20 -> 25 (평온 보상 증가)
+            '슬픔': -25,     # -35 -> -25 (페널티 감소)
+            '분노': -20,     # -25 -> -20 (페널티 감소)
+            '불안': -15      # -20 -> -15 (페널티 감소)
         }
         
         for emotion, weight in mood_weights.items():
             if emotion in emotion_scores:
-                base_mood += weight * emotion_scores[emotion]
+                base_mood += weight * emotion_scores[emotion] * 0.5  # 음성 영향력 크게 제한
         
-        # 음성 품질 기반 조정 (좋은 음성 품질 = 더 긍정적)
+        # 음성 품질 기반 조정 (미미하게)
         hnr = features.get('hnr', 15.0)
-        if hnr > 20:  # 좋은 음성 품질
-            base_mood += 5
-        elif hnr < 10:  # 나쁜 음성 품질
-            base_mood -= 5
+        if hnr > 22:  # 임계값 상향 (20 -> 22)
+            base_mood += 3  # 보상 감소 (5 -> 3)
+        elif hnr < 8:  # 임계값 하향 (10 -> 8)
+            base_mood -= 3  # 페널티 감소 (5 -> 3)
         
         return max(-70, min(70, int(base_mood)))
 
@@ -706,49 +706,80 @@ def analyze_emotion_with_gpt(text: str, voice_analysis: Optional[Dict] = None) -
         return analyze_emotion_simulation(text, voice_analysis)
 
 def combine_text_and_voice_analysis(text_analysis: Dict, voice_analysis: Dict) -> Dict:
-    """텍스트 분석과 음성 분석을 결합하여 최종 분석 결과 생성"""
+    """텍스트 분석과 음성 분석을 결합하여 최종 분석 결과 생성 - 텍스트 우선"""
     
-    # 가중치 설정 (텍스트 60%, 음성 40%)
-    text_weight = 0.6
-    voice_weight = 0.4
+    # 가중치 설정 (텍스트 우선: 텍스트 80%, 음성 20%)
+    text_weight = 0.8
+    voice_weight = 0.2
     
-    # 감정 결합 (두 분석에서 공통으로 나온 감정을 우선)
+    # 감정 결합 (텍스트 감정을 우선하되, 음성은 보조적으로)
     text_emotions = set(text_analysis.get('emotions', []))
     voice_emotions = set(voice_analysis.get('detected_emotions', []))
     
-    combined_emotions = list(text_emotions.union(voice_emotions))
+    # 텍스트 감정을 기본으로 하고, 음성은 보조적으로만 추가
+    combined_emotions = list(text_emotions)
+    for voice_emotion in voice_emotions:
+        if voice_emotion not in combined_emotions and len(combined_emotions) < 3:
+            combined_emotions.append(voice_emotion)
+    
     if not combined_emotions:
         combined_emotions = ['중립']
     
-    # 수치 결합 (가중 평균)
-    combined_stress = int(
-        text_analysis.get('stress_level', 30) * text_weight + 
-        voice_analysis.get('voice_stress_level', 30) * voice_weight
-    )
+    # 텍스트 기반 긍정성 체크
+    text_positive = any(emotion in ['기쁨', '평온'] for emotion in text_emotions)
+    text_negative = any(emotion in ['슬픔', '분노', '불안'] for emotion in text_emotions)
     
-    combined_energy = int(
-        text_analysis.get('energy_level', 50) * text_weight + 
-        voice_analysis.get('voice_energy_level', 50) * voice_weight
-    )
+    # 수치 결합 (텍스트 우선, 음성은 미세 조정)
+    text_stress = text_analysis.get('stress_level', 30)
+    voice_stress = voice_analysis.get('voice_stress_level', 30)
+    text_energy = text_analysis.get('energy_level', 50)
+    voice_energy = voice_analysis.get('voice_energy_level', 50)
+    text_mood = text_analysis.get('mood_score', 0)
+    voice_mood = voice_analysis.get('voice_mood_score', 0)
     
-    combined_mood = int(
-        text_analysis.get('mood_score', 0) * text_weight + 
-        voice_analysis.get('voice_mood_score', 0) * voice_weight
-    )
+    # 텍스트가 긍정적이면 음성의 부정적 영향 제한
+    if text_positive:
+        # 긍정적 텍스트인 경우, 음성 영향력 더 축소
+        combined_stress = int(text_stress * 0.9 + voice_stress * 0.1)
+        combined_energy = int(text_energy * 0.85 + voice_energy * 0.15)
+        combined_mood = int(text_mood * 0.85 + voice_mood * 0.15)
+        
+        # 추가적으로 긍정 보정
+        combined_stress = max(10, combined_stress - 10)  # 스트레스 완화
+        combined_energy = min(90, combined_energy + 5)   # 에너지 약간 증가
+        combined_mood = min(70, combined_mood + 8)       # 기분 개선
+        
+    elif text_negative:
+        # 부정적 텍스트인 경우, 음성이 완화 역할을 할 수 있도록
+        combined_stress = int(text_stress * 0.75 + voice_stress * 0.25)
+        combined_energy = int(text_energy * 0.75 + voice_energy * 0.25)
+        combined_mood = int(text_mood * 0.75 + voice_mood * 0.25)
+        
+    else:
+        # 중립적인 경우, 표준 가중치
+        combined_stress = int(text_stress * text_weight + voice_stress * voice_weight)
+        combined_energy = int(text_energy * text_weight + voice_energy * voice_weight)
+        combined_mood = int(text_mood * text_weight + voice_mood * voice_weight)
     
-    # 신뢰도 향상 (음성 분석이 있으면 더 높은 신뢰도)
-    confidence = min(1.0, text_analysis.get('confidence', 0.7) + 0.2)
+    # 전체적인 균형 조정 (웰빙 고려)
+    # 스트레스가 너무 높으면 완화
+    if combined_stress > 70:
+        combined_stress = int(combined_stress * 0.85)
+    
+    # 신뢰도 향상 (음성 분석이 있으면 텍스트 분석의 신뢰도 보강)
+    base_confidence = text_analysis.get('confidence', 0.7)
+    confidence = min(1.0, base_confidence + 0.15)  # 적당한 신뢰도 증가
     
     return {
         'emotions': combined_emotions[:3],  # 최대 3개 감정
         'stress_level': max(0, min(100, combined_stress)),
         'energy_level': max(0, min(100, combined_energy)),
         'mood_score': max(-70, min(70, combined_mood)),
-        'summary': text_analysis.get('summary', '종합적인 분석이 완료되었습니다.'),
+        'summary': text_analysis.get('summary', '텍스트 기반 종합 분석이 완료되었습니다.'),
         'keywords': text_analysis.get('keywords', []),
-        'tone': text_analysis.get('tone', '중립적'),
+        'tone': text_analysis.get('tone', '중립적'),  # 텍스트 톤 우선
         'confidence': confidence,
-        'voice_analysis': voice_analysis  # 음성 분석 결과도 저장
+        'voice_analysis': voice_analysis  # 음성 분석 결과도 저장 (참고용)
     }
 
 def analyze_emotion_simulation(text: str, voice_analysis: Optional[Dict] = None) -> Dict:
