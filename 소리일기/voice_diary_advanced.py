@@ -417,8 +417,184 @@ def combine_text_and_voice(text_analysis: Dict, voice_analysis: Optional[Dict]) 
     return combined
 
 # =============================
+# Mental State Assessment (text anchor + voice-driven refinement)
+# =============================
+
+def extract_positive_events(text: str) -> List[str]:
+    t = text.lower()
+    keys = [
+        ("좋았", "오늘 좋았던 점"), ("행복", "행복한 순간"), ("고마", "감사한 일"),
+        ("즐겁", "즐거웠던 활동"), ("평온", "평온했던 순간"), ("성공", "성취"), ("뿌듯", "뿌듯했던 일")
+    ]
+    tags = []
+    for k, v in keys:
+        if k in t:
+            tags.append(v)
+    return list(dict.fromkeys(tags))[:4]
+
+
+def assess_mental_state(text: str, combined: Dict) -> Dict:
+    """Return a structured coaching card using voice cues for fine-grained decisions."""
+    tone = combined.get("tone", "중립적")
+    stress = combined.get("stress_level", 30)
+    energy = combined.get("energy_level", 50)
+    mood = combined.get("mood_score", 0)
+
+    cues = combined.get("voice_analysis", {}).get("voice_cues", {})
+    arousal = float(cues.get("arousal", 50))
+    tension = float(cues.get("tension", 50))
+    stability = float(cues.get("stability", 50))
+    quality = float(cues.get("quality", 0.5))
+
+    positives = extract_positive_events(text)
+
+    # Base state by text + numbers
+    state = "중립"
+    if tone == "긍정적" and mood >= 15 and stress < 40:
+        state = "안정/회복"
+    if energy < 40 and mood < 0:
+        state = "저활력"
+    if stress >= 60:
+        state = "고스트레스"
+
+    # Voice refinements
+    if quality > 0.4:
+        if tension > 65 and stability < 45:
+            state = "긴장 과다"
+        elif arousal > 70 and stress > 45:
+            state = "과흥분/과부하 가능"
+        elif arousal < 40 and energy < 45:
+            state = "저각성"
+
+    # Build recommendations
+    recs: List[str] = []
+    # Positive day suggestions
+    if tone == "긍정적" or positives:
+        if positives:
+            recs.append("오늘 좋았던 포인트를 3줄로 기록해 보세요 (감사/성취/즐거움).")
+        recs.append("좋았던 활동을 내일 10분만 더 해보기.")
+    # Tension handling
+    if tension > 60:
+        recs.append("4-7-8 호흡 3회: 4초 들이마시고, 7초 멈추고, 8초 내쉬기.")
+    if stability < 50:
+        recs.append("목/어깨 이완 스트레칭 2분 (상체 회전, 목 옆선 늘리기).")
+    # Energy nudges
+    if arousal < 45 or energy < 45:
+        recs.append("햇빛 10분 산책 + 가벼운 워킹 (Step 800~1000).")
+    if arousal > 65 and stress > 50:
+        recs.append("알림/자극 줄이기: 25분 집중 + 5분 휴식(포모도로 2회).")
+
+    # Keep list concise
+    recs = recs[:4]
+
+    # Motivational line
+    mot = "작은 습관이 오늘의 좋은 흐름을 내일로 이어줍니다."
+    if state in ("고스트레스", "긴장 과다"):
+        mot = "호흡을 고르고, 천천히. 당신의 속도로 충분합니다."
+    elif state in ("저활력", "저각성"):
+        mot = "작은 한 걸음이 에너지를 깨웁니다. 10분만 움직여볼까요?"
+
+    summary = f"상태: {state} · 스트레스 {stress} · 에너지 {energy} · 각성 {int(arousal)} / 긴장 {int(tension)} / 안정 {int(stability)}"
+
+    return {
+        "state": state,
+        "summary": summary,
+        "positives": positives,
+        "recommendations": recs,
+        "motivation": mot,
+        "voice_cues": {"arousal": arousal, "tension": tension, "stability": stability, "quality": quality},
+    }
+
+# =============================
 # Whisper Transcription (optional)
 # =============================
+
+def generate_llm_coach_report(text: str, combined: Dict, recent: Optional[List[Dict]] = None) -> Dict:
+    """Use LLM to produce a rich, structured coaching card.
+    Falls back to assess_mental_state if LLM unavailable or fails.
+    """
+    if not openai_client:
+        return assess_mental_state(text, combined)
+
+    cues = combined.get("voice_analysis", {}).get("voice_cues", {})
+    try:
+        history_blob = []
+        if recent:
+            # keep small, anonymized summary for context (last 5)
+            for e in recent[-5:]:
+                a = e.get("analysis", {})
+                history_blob.append({
+                    "date": e.get("date"),
+                    "tone": a.get("tone"),
+                    "stress": a.get("stress_level"),
+                    "energy": a.get("energy_level"),
+                    "mood": a.get("mood_score"),
+                })
+
+        sys = (
+            "당신은 따뜻한 한국어 코치입니다. 텍스트는 감정 라벨의 기준이며, 음성은 각성/긴장/안정의 보조지표로만 고려하세요.
+"
+            "아래 정보를 종합해 JSON으로만 답하세요. 라벨(기쁨/슬픔/분노/불안/평온/중립)은 바꾸지 말고,
+"
+            "상태 요약과 2~4개의 구체 추천, 동기부여 한 줄을 생성하세요. 최근 기록이 있으면 짧게 반영하세요."
+        )
+        user = {
+            "text": text,
+            "text_analysis": {
+                "emotions": combined.get("emotions", []),
+                "stress": combined.get("stress_level", 30),
+                "energy": combined.get("energy_level", 50),
+                "mood": combined.get("mood_score", 0),
+                "tone": combined.get("tone", "중립적"),
+            },
+            "voice_cues": {
+                "arousal": int(cues.get("arousal", 50)),
+                "tension": int(cues.get("tension", 50)),
+                "stability": int(cues.get("stability", 50)),
+                "quality": float(cues.get("quality", 0.5)),
+            },
+            "recent_summary": history_blob,
+        }
+        schema_hint = (
+            "다음 JSON 스키마로만 응답:
+"
+            "{
+  \"state\": \"안정/회복|고스트레스|긴장 과다|과흥분/과부하 가능|저활력|저각성|중립\",
+"
+            "  \"summary\": \"한두 문장 요약\",
+  \"positives\": [\"...\"],
+"
+            "  \"recommendations\": [\"간결한 실행 문장\"],
+  \"motivation\": \"짧은 격려 문장\"
+}"
+        )
+
+        resp = openai_client.chat.completions.create(
+            model="gpt-4o",
+            temperature=0.4,
+            max_tokens=700,
+            messages=[
+                {"role": "system", "content": sys},
+                {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+                {"role": "system", "content": schema_hint},
+            ],
+        )
+        content = resp.choices[0].message.content.strip()
+        if "```" in content:
+            content = content.split("```")[-2]
+        data = json.loads(content)
+        # guard & normalize
+        data.setdefault("state", "중립")
+        data.setdefault("summary", "오늘의 상태를 차분히 정리했어요.")
+        data.setdefault("positives", [])
+        data.setdefault("recommendations", [])
+        data.setdefault("motivation", "작은 걸음이 큰 변화를 만듭니다.")
+        # cap list sizes
+        data["recommendations"] = data.get("recommendations", [])[:4]
+        data["positives"] = data.get("positives", [])[:4]
+        return data
+    except Exception:
+        return assess_mental_state(text, combined)
 
 def transcribe_audio(audio_bytes: bytes) -> Optional[str]:
     if not openai_client:
@@ -534,6 +710,10 @@ if page == "🎙️ 오늘의 이야기":
             # Fuse with voice cues (aux)
             final = combine_text_and_voice(t_res, voice_analysis)
 
+            # Build LLM-driven coaching card (fallback to rules if needed)
+            recent_entries = st.session_state.diary_entries[-7:] if st.session_state.diary_entries else []
+            ms_card = generate_llm_coach_report(diary_text, final, recent_entries)
+
             entry = {
                 "id": len(st.session_state.diary_entries) + 1,
                 "date": today_key(),
@@ -541,6 +721,7 @@ if page == "🎙️ 오늘의 이야기":
                 "text": diary_text,
                 "analysis": final,
                 "audio_data": audio_b64,
+                "mental_state": ms_card,
             }
             st.session_state.diary_entries.append(entry)
 
@@ -578,6 +759,19 @@ if page == "🎙️ 오늘의 이야기":
                 c3.metric("안정도", f"{int(cues['stability'])}/100")
                 c4.metric("녹음 품질", qtxt)
                 st.caption("※ 목소리 신호는 보조 지표입니다. 감정 판단은 텍스트에 기반합니다.")
+
+            # Mental coach block (LLM-driven if available)
+            st.markdown("### 🧠 오늘의 마음 코치")
+            with st.container():
+                st.markdown("<div class='metric-card'>", unsafe_allow_html=True)
+                st.write(ms_card["summary"])
+                if ms_card.get("positives"):
+                    st.write("**오늘의 밝은 포인트**: " + ", ".join(ms_card["positives"]))
+                st.write("**추천**")
+                for r in ms_card.get("recommendations", []):
+                    st.write(f"- {r}")
+                st.info(ms_card.get("motivation", "오늘도 잘 해내셨어요."))
+                st.markdown("</div>", unsafe_allow_html=True)
 
 elif page == "🎵 목소리 보조지표":
     st.header("최근 녹음의 보조지표 상세")
