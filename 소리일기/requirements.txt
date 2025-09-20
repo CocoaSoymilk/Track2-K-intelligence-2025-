@@ -50,3 +50,8 @@ seaborn>=0.12.0    # For statistical visualizations
 #
 # Alternative minimal installation (without Praat):
 # pip install streamlit pandas numpy plotly openai librosa scipy soundfile
+
+pypdfium2==4.30.0
+pytesseract==0.3.13
+Pillow==10.4.0
+
