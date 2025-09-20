@@ -1061,19 +1061,39 @@ def create_emotion_calendar():
         st.info("기록이 쌓이면 캘린더로 감정 패턴을 확인할 수 있어요!")
         return
 
-    # 현재 월의 첫째 날과 마지막 날
+    # 현재 날짜
     today = get_korean_time()
-    first_day = today.replace(day=1)
-    last_day = today.replace(day=calendar.monthrange(today.year, today.month)[1])
+    
+    # 기록이 있는 년-월 목록 생성
+    available_months = set()
+    for entry in st.session_state.diary_entries:
+        entry_date = entry.get("date", "")
+        if entry_date:
+            year_month = entry_date[:7]  # YYYY-MM 형식
+            available_months.add(year_month)
+    
+    # 현재 월도 추가
+    current_month = today.strftime("%Y-%m")
+    available_months.add(current_month)
+    
+    # 정렬된 월 목록
+    sorted_months = sorted(list(available_months), reverse=True)
     
     # 월 선택
     col1, col2 = st.columns([1, 3])
     with col1:
-        selected_month = st.date_input(
-            "월 선택",
-            value=today.date(),
-            format="YYYY-MM"
-        )
+        if sorted_months:
+            selected_month_str = st.selectbox(
+                "월 선택",
+                sorted_months,
+                index=0,
+                format_func=lambda x: f"{x.split('-')[0]}년 {int(x.split('-')[1])}월"
+            )
+            # 선택된 월을 datetime 객체로 변환
+            year, month = map(int, selected_month_str.split('-'))
+            selected_month = datetime(year, month, 1).date()
+        else:
+            selected_month = today.date().replace(day=1)
     
     # 선택된 월의 데이터 필터링
     month_str = selected_month.strftime("%Y-%m")
@@ -1081,31 +1101,50 @@ def create_emotion_calendar():
     for entry in st.session_state.diary_entries:
         entry_date = entry.get("date", "")
         if entry_date.startswith(month_str):
-            day = int(entry_date.split("-")[2])
-            if day not in month_entries:
-                month_entries[day] = []
-            month_entries[day].append(entry)
+            try:
+                day = int(entry_date.split("-")[2])
+                if day not in month_entries:
+                    month_entries[day] = []
+                month_entries[day].append(entry)
+            except (IndexError, ValueError):
+                continue
 
     # 캘린더 그리드 생성
     year = selected_month.year
     month = selected_month.month
-    cal = calendar.monthcalendar(year, month)
+    
+    # 월 정보 표시
+    with col2:
+        st.markdown(f"### {year}년 {month}월")
+        total_entries_this_month = sum(len(entries) for entries in month_entries.values())
+        st.caption(f"이번 달 총 {total_entries_this_month}개의 기록")
+    
+    try:
+        cal = calendar.monthcalendar(year, month)
+    except Exception:
+        st.error("캘린더 생성 중 오류가 발생했습니다.")
+        return
     
     # 요일 헤더
     weekdays = ["월", "화", "수", "목", "금", "토", "일"]
     cols = st.columns(7)
     for i, day in enumerate(weekdays):
-        cols[i].markdown(f"<div style='text-align: center; font-weight: bold;'>{day}</div>", 
+        cols[i].markdown(f"<div style='text-align: center; font-weight: bold; padding: 8px;'>{day}</div>", 
                         unsafe_allow_html=True)
 
     # 캘린더 날짜들
-    for week in cal:
+    for week_idx, week in enumerate(cal):
         cols = st.columns(7)
-        for i, day in enumerate(week):
+        for day_idx, day in enumerate(week):
             if day == 0:
-                cols[i].markdown("<div style='height: 60px;'></div>", unsafe_allow_html=True)
+                # 빈 날짜 (이전/다음 달)
+                cols[day_idx].markdown("<div style='height: 60px;'></div>", unsafe_allow_html=True)
             else:
                 entries_for_day = month_entries.get(day, [])
+                
+                # 오늘 날짜 확인
+                is_today = (day == today.day and month == today.month and year == today.year)
+                
                 if entries_for_day:
                     # 해당 날짜에 기록이 있는 경우
                     latest_entry = entries_for_day[-1]  # 가장 최근 기록
@@ -1113,30 +1152,42 @@ def create_emotion_calendar():
                     emoji = get_emotion_emoji(emotions)
                     color = get_emotion_color(emotions)
                     
-                    is_today = (day == today.day and month == today.month and year == today.year)
-                    border_style = "border: 2px solid #667eea;" if is_today else ""
+                    # 버튼 키 생성 (고유하게)
+                    button_key = f"cal_{year}_{month}_{day}_{week_idx}_{day_idx}"
                     
-                    with cols[i]:
-                        button_label = f"{emoji}\n{day}"
-                        if st.button(
-                            button_label,
-                            key=f"cal_{month}_{day}",
-                            help=f"{', '.join(emotions)} ({len(entries_for_day)}개 기록)"
-                        ):
-                            # 날짜 클릭 시 상세 정보 표시
-                            st.session_state[f"show_day_{day}"] = True
+                    with cols[day_idx]:
+                        button_clicked = st.button(
+                            f"{emoji}\n{day}",
+                            key=button_key,
+                            help=f"{', '.join(emotions)} ({len(entries_for_day)}개 기록)",
+                            use_container_width=True
+                        )
                         
-                        # 날짜 배경색 적용 (CSS로 표시하기 어려우므로 생략)
+                        if button_clicked:
+                            # 날짜 클릭 시 상세 정보 표시
+                            st.session_state[f"show_day_{year}_{month}_{day}"] = True
+                        
+                        # 배경색 표시를 위한 스타일
+                        border_style = "border: 2px solid #667eea;" if is_today else "border: 1px solid #ddd;"
+                        background_style = f"background: {color}; opacity: 0.3;"
+                        
+                        st.markdown(
+                            f"""
+                            <div style='{background_style} {border_style} 
+                                       border-radius: 8px; height: 10px; margin-top: 2px;'>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
                         
                 else:
                     # 기록이 없는 날짜
-                    is_today = (day == today.day and month == today.month and year == today.year)
-                    style = "background: #f0f0f0;" if is_today else "background: #fafafa;"
+                    border_style = "border: 2px solid #667eea;" if is_today else "border: 1px solid #ddd;"
                     
-                    cols[i].markdown(
+                    cols[day_idx].markdown(
                         f"""
-                        <div style='{style} text-align: center; padding: 20px; margin: 2px; 
-                                   border-radius: 8px; border: 1px solid #ddd;'>
+                        <div style='{border_style} border-radius: 8px; padding: 20px; margin: 2px; 
+                                   text-align: center; background: #fafafa; color: #999;'>
                             {day}
                         </div>
                         """,
@@ -1144,23 +1195,32 @@ def create_emotion_calendar():
                     )
 
     # 선택된 날짜 상세 정보 표시
+    show_day_details = False
     for day in range(1, 32):
-        if st.session_state.get(f"show_day_{day}", False):
+        session_key = f"show_day_{year}_{month}_{day}"
+        if st.session_state.get(session_key, False):
+            show_day_details = True
             entries_for_day = month_entries.get(day, [])
             if entries_for_day:
                 st.markdown(f"### {year}년 {month}월 {day}일 기록")
+                
                 for i, entry in enumerate(entries_for_day):
-                    with st.expander(f"📝 {entry.get('time', '')} - {', '.join(entry.get('analysis', {}).get('emotions', []))}"):
+                    emotions_str = ', '.join(entry.get('analysis', {}).get('emotions', []))
+                    with st.expander(f"📝 {entry.get('time', '')} - {emotions_str}", expanded=(i==0)):
                         st.write(entry.get("text", ""))
                         analysis = entry.get("analysis", {})
+                        
                         col1, col2, col3 = st.columns(3)
                         col1.metric("스트레스", f"{analysis.get('stress_level', 0)}%")
                         col2.metric("에너지", f"{analysis.get('energy_level', 0)}%")
                         col3.metric("기분", f"{analysis.get('mood_score', 0)}")
                 
-                if st.button("닫기", key=f"close_{day}"):
-                    st.session_state[f"show_day_{day}"] = False
+                # 닫기 버튼
+                if st.button("닫기", key=f"close_{year}_{month}_{day}"):
+                    st.session_state[session_key] = False
                     st.rerun()
+                
+                break  # 한 번에 하나의 날짜만 표시
 
 # =============================
 # Goal Management Functions
