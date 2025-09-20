@@ -798,7 +798,7 @@ def assess_mental_state(text, combined) -> dict:
         recs.append("4-7-8 호흡 3회(4초 들숨,7초 멈춤,8초 날숨).")
     if stability<50:
         recs.append("목/어깨 이완 스트레칭 2분.")
-    if arousal<45거나_energy:=energy<45:
+    if arousal < 45 or energy < 45:
         recs.append("햇빛 10분 산책 + 가벼운 워킹 800~1000보.")
     if arousal>65 and stress>50:
         recs.append("알림 줄이기: 25분 집중+5분 휴식 2회.")
