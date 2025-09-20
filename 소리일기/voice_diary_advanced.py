@@ -18,9 +18,12 @@ def get_librosa():
 
 @st.cache_resource(show_spinner=False)
 def get_parselmouth():
-    try: import parselmouth; from parselmouth.praat import call  # noqa
-    except Exception: return None
-    return parselmouth
+    try:
+        import parselmouth
+        from parselmouth.praat import call  # noqa
+        return parselmouth
+    except Exception:
+        return None
 
 @st.cache_resource(show_spinner=False)
 def get_soundfile():
@@ -530,7 +533,7 @@ def assess_mental_state(text, combined)->dict:
             "voice_cues":{"arousal":arousal,"tension":tension,"stability":stability,"quality":quality}}
 
 # =============================
-# RAG: PDF handling (경로/한글/공백 견고화 + 재귀탐색 + 디버그)
+# RAG: PDF handling
 # =============================
 def nfc(s:str)->str:
     try: return unicodedata.normalize("NFC", s)
@@ -540,20 +543,13 @@ def log_debug(msg:str):
     st.session_state.debug_logs.append(msg)
 
 def default_kb_candidates()->list[str]:
-    # 현재 작업 디렉터리 로깅
     log_debug(f"cwd = {Path.cwd()}")
-    # 0) 환경변수/시크릿 우선
     explicit=[]
-    kb_env = os.getenv("KB_PDF_PATH") or st.secrets.get("KB_PDF_PATH", "") if hasattr(st, "secrets") else ""
-    if kb_env:
-        explicit.append(kb_env)
-    # 1) 이번에 확인된 실제 경로(최우선)
+    kb_env = os.getenv("KB_PDF_PATH") or (st.secrets.get("KB_PDF_PATH","") if hasattr(st, "secrets") else "")
+    if kb_env: explicit.append(kb_env)
     explicit += [
         "소리일기/심리 건강 관리 정리 파일.pdf",
         "./소리일기/심리 건강 관리 정리 파일.pdf",
-    ]
-    # 2) 과거 기본 후보들
-    explicit += [
         "Track2-K-intelligence-2025-/소리일기/data/심리 건강 관리 정리 파일.pdf",
         "./Track2-K-intelligence-2025-/소리일기/data/심리 건강 관리 정리 파일.pdf",
         "소리일기/data/심리 건강 관리 정리 파일.pdf",
@@ -562,10 +558,9 @@ def default_kb_candidates()->list[str]:
         "./data/심리 건강 관리 정리 파일.pdf",
     ]
     cand=[p for p in explicit if Path(nfc(p)).exists()]
-    if cand: 
+    if cand:
         log_debug("✅ KB 후보(명시 경로) 발견:\n" + "\n".join(cand))
         return cand
-    # 3) 파일명 기준으로 레포 전체 탐색
     found = locate_pdf("심리 건강 관리 정리 파일.pdf", search_roots=[
         ".", "./Track2-K-intelligence-2025-", "./Track2-K-intelligence-2025-/소리일기",
         "./소리일기", "./"
@@ -578,7 +573,7 @@ def locate_pdf(filename:str, search_roots:list[str])->list[str]:
     tried=[]
     for root in search_roots:
         root_path = Path(nfc(root))
-        if not root_path.exists(): 
+        if not root_path.exists():
             tried.append(f"[X] {root} (존재하지 않음)"); continue
         tried.append(f"[O] {root} (탐색)")
         for dirpath, _, files in os.walk(root_path):
@@ -595,7 +590,6 @@ def locate_pdf(filename:str, search_roots:list[str])->list[str]:
     return results
 
 def read_pdf_text(path)->list[dict]:
-    """페이지별 텍스트 목록 [{'page':i,'text':...}]"""
     out=[]
     if not PyPDF2:
         log_debug("⚠️ PyPDF2 미설치로 KB 파싱 불가.")
@@ -812,19 +806,20 @@ if not st.session_state.show_disclaimer:
                 st.caption("로그 없음")
         st.markdown("---")
         st.markdown("### ℹ️ 앱 정보")
-        st.markdown("**버전:** v2.3 (KB 경로 강화)")
+        st.markdown("**버전:** v2.4 (리스트컴프 표시 버그 수정)")
         st.markdown("**시간대:** 한국 표준시 (KST)")
 
 # =============================
 # Pages
 # =============================
-def header_block(): 
-    st.markdown(f"""
-    <div class="main-header">
-      <h1>🎙️ 소리로 쓰는 하루 – AI 감정 코치</h1>
-      <p>📅 {kst_now().strftime('%Y년 %m월 %d일 %A')} | ⏰ {current_time()}</p>
-      <p>감정 라벨은 <b>텍스트 기반</b> · 목소리는 <b>보조 지표</b></p>
-    </div>""", unsafe_allow_html=True)
+def header_top():
+    if not st.session_state.show_disclaimer:
+        st.markdown(f"""
+        <div class="main-header">
+          <h1>🎙️ 소리로 쓰는 하루 – AI 감정 코치</h1>
+          <p>📅 {kst_now().strftime('%Y년 %m월 %d일 %A')} | ⏰ {current_time()}</p>
+          <p>감정 라벨은 <b>텍스트 기반</b> · 목소리는 <b>보조 지표</b></p>
+        </div>""", unsafe_allow_html=True)
 
 def page_today():
     st.header("오늘 하루는 어떠셨나요?")
@@ -903,10 +898,16 @@ def page_today():
         st.write(f"**상태:** {coach_card.get('state','중립')}")
         st.write(coach_card.get("summary","오늘의 상태를 차분히 정리했어요."))
         if coach_card.get("positives"):
-            st.write("**🌟 오늘의 밝은 포인트**"); [st.write(f"• {p}") for p in coach_card["positives"]]
-        st.write("**💡 추천 행동**"); [st.write(f"{i+1}. {rec}") for i,rec in enumerate(coach_card.get("recommendations",[]))]
+            st.write("**🌟 오늘의 밝은 포인트**")
+            for p in coach_card["positives"]:
+                st.write(f"• {p}")
+        st.write("**💡 추천 행동**")
+        for i, rec in enumerate(coach_card.get("recommendations", []), start=1):
+            st.write(f"{i}. {rec}")
         if coach_card.get("citations"):
-            st.caption("📚 근거"); [st.caption(f"- {c.get('source','문서')} p.{c.get('page','?')}") for c in coach_card["citations"]]
+            st.caption("📚 근거")
+            for c in coach_card["citations"]:
+                st.caption(f"- {c.get('source','문서')} p.{c.get('page','?')}")
         st.info(f"💪 {coach_card.get('motivation','오늘도 잘 해내셨어요.')}"); st.markdown("</div>", unsafe_allow_html=True)
 
 def page_dashboard():
@@ -978,7 +979,8 @@ def page_journey():
     if mood_trend>0.5: ins.append("😊 기분 개선 추세!")
     elif mood_trend<-0.5: ins.append("💙 기분 하락. 자기돌봄 시간을 확보해요.")
     if not ins: ins.append("📊 전반적으로 안정적입니다.")
-    for s in ins: st.info(s)
+    for s in ins:
+        st.info(s)
 
 def page_calendar():
     st.header("📅 감정 캘린더")
@@ -999,7 +1001,9 @@ def page_calendar():
     try: cal=calendar.monthcalendar(year, month)
     except Exception: st.error("캘린더 생성 오류"); return
     weekdays=["월","화","수","목","금","토","일"]
-    cols=st.columns(7); [cols[i].markdown(f"<div style='text-align:center;font-weight:bold;padding:8px'>{d}</div>", unsafe_allow_html=True) for i,d in enumerate(weekdays)]
+    cols=st.columns(7)
+    for i,d in enumerate(weekdays):
+        cols[i].markdown(f"<div style='text-align:center;font-weight:bold;padding:8px'>{d}</div>", unsafe_allow_html=True)
     for w_idx,week in enumerate(cal):
         cols=st.columns(7)
         for d_idx,day in enumerate(week):
@@ -1127,19 +1131,39 @@ def page_archive():
         st.markdown("### 📊 주간 웰빙 리포트")
         icon={"개선됨":"🟢","안정적":"🟡","주의필요":"🔴"}.get(r.get("overall_trend","안정적"),"🟡")
         st.markdown(f"**전체 추세:** {icon} {r.get('overall_trend','안정적')}")
-        if r.get("key_insights"): st.markdown("**🔍 주요 발견사항**"); [st.write(f"• {x}") for x in r["key_insights"]]
+        if r.get("key_insights"):
+            st.markdown("**🔍 주요 발견사항**")
+            for x in r["key_insights"]:
+                st.write(f"• {x}")
         pat=r.get("patterns",{})
         if pat:
             c1,c2=st.columns(2)
-            if pat.get("best_days"): c1.markdown("**🌟 좋았던 날**"); [c1.write(f"• {d}") for d in pat["best_days"]]
-            if pat.get("challenging_days"): c2.markdown("**💪 도전적이었던 날**"); [c2.write(f"• {d}") for d in pat["challenging_days"]]
-            if pat.get("emotional_patterns"): st.markdown("**📈 감정 패턴**"); st.write(pat["emotional_patterns"])
+            if pat.get("best_days"):
+                c1.markdown("**🌟 좋았던 날**")
+                for d in pat["best_days"]:
+                    c1.write(f"• {d}")
+            if pat.get("challenging_days"):
+                c2.markdown("**💪 도전적이었던 날**")
+                for d in pat["challenging_days"]:
+                    c2.write(f"• {d}")
+            if pat.get("emotional_patterns"):
+                st.markdown("**📈 감정 패턴**")
+                st.write(pat["emotional_patterns"])
         rec=r.get("recommendations",{})
         if rec:
             st.markdown("### 💡 다음 주 추천")
-            if rec.get("priority_actions"): st.markdown("**🎯 우선순위 행동**"); [st.write(f"{i+1}. {x}") for i,x in enumerate(rec["priority_actions"])]
-            if rec.get("wellness_tips"): st.markdown("**🌱 웰빙 팁**"); [st.write(f"• {x}") for x in rec["wellness_tips"]]
-            if rec.get("goals_for_next_week"): st.markdown("**🎯 다음 주 목표**"); [st.write(f"• {x}") for x in rec["goals_for_next_week"]]
+            if rec.get("priority_actions"):
+                st.markdown("**🎯 우선순위 행동**")
+                for i,x in enumerate(rec["priority_actions"], start=1):
+                    st.write(f"{i}. {x}")
+            if rec.get("wellness_tips"):
+                st.markdown("**🌱 웰빙 팁**")
+                for x in rec["wellness_tips"]:
+                    st.write(f"• {x}")
+            if rec.get("goals_for_next_week"):
+                st.markdown("**🎯 다음 주 목표**")
+                for x in rec["goals_for_next_week"]:
+                    st.write(f"• {x}")
         st.success(f"💪 {r.get('encouragement','잘하고 있어요!')}")
         if st.button("리포트 닫기"): st.session_state.show_weekly_report=False; st.rerun()
         st.markdown("---")
@@ -1168,10 +1192,15 @@ def page_archive():
             c2.write(f"**에너지:** {'🟢' if en>60 else ('🟡' if en>40 else '🔴')} {en}%")
             c3.write(f"**기분:** {'🟢' if m>10 else ('🟡' if m>-10 else '🔴')} {m}")
             ms=e.get("mental_state",{})
-            if ms.get("summary"): st.markdown("**🧠 코치 요약**"); st.info(ms["summary"])
+            if ms.get("summary"):
+                st.markdown("**🧠 코치 요약**")
+                st.info(ms["summary"])
             if a.get("voice_analysis"):
                 vc=a["voice_analysis"]["voice_cues"]; st.markdown("**🎵 음성 보조지표**")
-                v1,v2,v3=st.columns(3); v1.write(f"각성:{int(vc.get('arousal',0))}"); v2.write(f"긴장:{int(vc.get('tension',0))}"); v3.write(f"안정:{int(vc.get('stability',0))}")
+                v1,v2,v3=st.columns(3)
+                v1.write(f"각성:{int(vc.get('arousal',0))}")
+                v2.write(f"긴장:{int(vc.get('tension',0))}")
+                v3.write(f"안정:{int(vc.get('stability',0))}")
             st.markdown("</div>", unsafe_allow_html=True)
 
 def page_kb():
@@ -1185,7 +1214,8 @@ def page_kb():
     q=st.text_input("🔍 KB 검색어", placeholder="예) 스트레스 관리 호흡법, 수면 루틴, 긴장 완화")
     if st.button("검색") and q.strip():
         ctx=retrieve_kb(q, st.session_state.kb_index, st.session_state.kb_meta, top_k=5)
-        if not ctx: st.info("결과가 없습니다. (스캔 PDF/그림 위주 문서일 수 있음)")
+        if not ctx:
+            st.info("결과가 없습니다. (스캔 PDF/그림 위주 문서일 수 있음)")
         else:
             for c in ctx:
                 with st.expander(f"📄 {c['source']} · p.{c['page']}"):
@@ -1206,8 +1236,9 @@ def export_sidebar():
                                           "에너지":a.get("energy_level",0),"기분":a.get("mood_score",0),
                                           "톤":a.get("tone","중립적"),"신뢰도":a.get("confidence",0.6)}
                     ms=e.get("mental_state")
-                    if ms: row.update({"상태":ms.get("state",""),"코치요약":ms.get("summary",""),
-                                       "추천사항":" | ".join(ms.get("recommendations",[]))})
+                    if ms:
+                        row.update({"상태":ms.get("state",""),"코치요약":ms.get("summary",""),
+                                    "추천사항":" | ".join(ms.get("recommendations",[]))})
                     v=a.get("voice_analysis")
                     if v:
                         vc=v["voice_cues"]; vf=v["voice_features"]
@@ -1287,15 +1318,6 @@ def generate_simple_weekly_report(entries: list[dict]) -> dict:
 # =============================
 # Run
 # =============================
-def header_top():
-    if not st.session_state.show_disclaimer:
-        st.markdown(f"""
-        <div class="main-header">
-          <h1>🎙️ 소리로 쓰는 하루 – AI 감정 코치</h1>
-          <p>📅 {kst_now().strftime('%Y년 %m월 %d일 %A')} | ⏰ {current_time()}</p>
-          <p>감정 라벨은 <b>텍스트 기반</b> · 목소리는 <b>보조 지표</b></p>
-        </div>""", unsafe_allow_html=True)
-
 header_top()
 show_disclaimer()
 if not st.session_state.show_disclaimer:
