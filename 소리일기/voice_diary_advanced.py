@@ -1203,16 +1203,16 @@ def page_journey():
         {"날짜시간": f"{e['date']} {e['time']}", "날짜": e['date'],
          "스트레스": e["analysis"].get("stress_level",0),
          "에너지": e["analysis"].get("energy_level",0),
-         "기분(시각화용)": e["analysis"].get("mood_score",0) + 70}
+         "기분": e["analysis"].get("mood_score",0) + 70}
         for e in entries
     ])
     with c2:
         metric = st.selectbox("지표 선택",["전체","스트레스","에너지","기분"])
     if metric == "전체":
-        line_chart_no_tilt(df, "날짜시간", ["스트레스","에너지","기분(시각화용)"], title="시간에 따른 변화")
+        line_chart_no_tilt(df, "날짜시간", ["스트레스","에너지","기분"], title="시간에 따른 변화")
         st.caption("※ 기분은 시각화를 위해 +70 조정 (실제 -70~70)")
     else:
-        ymap = {"스트레스":"스트레스","에너지":"에너지","기분":"기분(시각화용)"}
+        ymap = {"스트레스":"스트레스","에너지":"에너지","기분":"기분"}
         line_chart_no_tilt(df, "날짜시간", [ymap[metric]], title=f"{metric} 추세")
         if metric == "기분":
             st.caption("※ 시각화를 위해 +70 조정 (실제 -70~70)")
