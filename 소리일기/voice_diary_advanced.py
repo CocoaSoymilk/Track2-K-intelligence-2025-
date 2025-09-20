@@ -21,7 +21,7 @@ def today_key(): return kst_now().strftime("%Y-%m-%d")
 def current_time(): return kst_now().strftime("%H:%M")
 
 st.set_page_config(
-    page_title="소리로 쓰는 하루 - AI 감정 코치",
+    page_title="하루 소리 – AI 마음 챙김 플랫폼",
     page_icon="🎙️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -46,6 +46,9 @@ def init_ss():
     ss.setdefault("show_weekly_report", False)
     ss.setdefault("weekly_report", None)
     ss.setdefault("openai_api_key", "")
+    # 개인화 프롬프트 설정
+    ss.setdefault("coach_tone", "따뜻함")  # 따뜻함/간결함/도전적
+    ss.setdefault("coach_focus", "균형")   # 스트레스/에너지/기분/균형
 
 init_ss()
 
@@ -153,13 +156,10 @@ st.markdown(f"""
     background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:1rem;
   }}
 
-  /* Metric container soft box */
   [data-testid="metric-container"] {{
     background:#fff; border:1px solid var(--card-border);
     border-radius:12px; padding:.6rem; box-shadow:var(--soft-shadow);
   }}
-
-  /* Keep Streamlit widgets default; only minor rounding */
   .stButton > button {{ border-radius:10px; font-weight:700; }}
   .stTextInput input, .stTextArea textarea {{ border-radius:10px; }}
   .stSelectbox > div {{ border-radius:10px; }}
@@ -198,8 +198,8 @@ def header_top():
     if not st.session_state.show_disclaimer:
         st.markdown(f"""
         <div class="main-header">
-          <h1>🎙️ 소리로 쓰는 하루 – AI 감정 코치</h1>
-          <div class="meta">📅 {kst_now().strftime('%Y년 %m월 %d일 %A')} | ⏰ {current_time()} · 감정 라벨은 <b>텍스트 우선</b>, 목소리는 <b>보조</b></div>
+          <h1>🎙️ 음성 일기 기반 AI 마음 챙김 플랫폼, 하루 소리</h1>
+          <div class="meta">📅 {kst_now().strftime('%Y년 %m월 %d일 %A')} | ⏰ {current_time()}</div>
         </div>""", unsafe_allow_html=True)
 
 # =============================
@@ -386,15 +386,58 @@ def update_baseline(vf):
     b["_count"] = new_cnt
 
 # =============================
-# Text LLM (Prompt 강화)
+# 개인화 프롬프트 엔지니어링
 # =============================
-TEXT_ANALYZER_SYSTEM = (
-    "당신은 한국어 감정 분석가입니다.\n"
-    "1) 감정 라벨(emotions)은 텍스트 내용만으로 판단(보이스 지표는 참고용, 라벨 변경 금지)\n"
-    "2) 허용 라벨: 기쁨/슬픔/분노/불안/평온/중립 (최대 2개)\n"
-    "3) 의료적 진단/약물/자해/위험 판단 금지, 필요시 일반적 전문가 상담 권고만\n"
-    "4) 아래 JSON 스키마로만 응답(추가 텍스트 금지)"
-)
+def build_personal_context(entries: list[dict], goals: list[dict], max_recent=5) -> str:
+    """최근 기록과 목표를 간단 요약하여 프롬프트 컨텍스트로 사용"""
+    if not entries:
+        return "최근 기록 없음."
+    recent = entries[-max_recent:]
+    avgS = int(np.mean([e.get("analysis",{}).get("stress_level",0) for e in recent]))
+    avgE = int(np.mean([e.get("analysis",{}).get("energy_level",0) for e in recent]))
+    avgM = int(np.mean([e.get("analysis",{}).get("mood_score",0) for e in recent]))
+    tones = [e.get("analysis",{}).get("tone","") for e in recent]
+    tone_top = max(set(tones), key=tones.count) if tones else "중립적"
+    goal_txt = "; ".join([g.get("description","") for g in goals if g.get("active",True)]) or "설정된 목표 없음"
+    return f"최근 평균: 스트레스 {avgS}, 에너지 {avgE}, 기분 {avgM}, 대표 톤 {tone_top}. 목표: {goal_txt}"
+
+def make_system_text_analyzer():
+    tone = st.session_state.get("coach_tone","따뜻함")
+    focus = st.session_state.get("coach_focus","균형")
+    focus_map = {
+        "스트레스": "스트레스 감축에 가중치를 두고 요약 톤을 구성",
+        "에너지": "활력 회복에 가중치를 두고 요약 톤을 구성",
+        "기분": "긍정 경험 인식과 감정 명료화에 가중치를 두고 요약 톤을 구성",
+        "균형": "균형 잡힌 요약 톤을 구성"
+    }
+    return (
+        "당신은 한국어 감정 분석가입니다.\n"
+        f"- 응답의 어조는 '{tone}'를 유지.\n"
+        f"- {focus_map.get(focus,'균형 잡힌 요약 톤을 구성')}.\n"
+        "1) 감정 라벨(emotions)은 텍스트 내용만으로 판단\n"
+        "2) 허용 라벨: 기쁨/슬픔/분노/불안/평온/중립 (최대 2개)\n"
+        "3) 의료적 진단/약물/자해/위험 판단 금지, 필요시 일반적 전문가 상담 권고만\n"
+        "4) 아래 JSON 스키마로만 응답(추가 텍스트 금지)"
+    )
+
+def make_system_coach():
+    tone = st.session_state.get("coach_tone","따뜻함")
+    focus = st.session_state.get("coach_focus","균형")
+    suffix = {
+        "스트레스": "스트레스 감소를 가장 우선으로 고려하여 조언하라.",
+        "에너지": "활력 회복과 리듬 형성을 가장 우선으로 고려하여 조언하라.",
+        "기분": "긍정 경험 강화와 감정 명료화를 가장 우선으로 고려하여 조언하라.",
+        "균형": "스트레스/에너지/기분의 균형을 고려해 조언하라."
+    }[focus]
+    return (
+        f"너는 한국어 웰빙 코치다. 어조는 '{tone}'. {suffix}\n"
+        "- 의료/약물/위험판단/자해 조언 금지. 필요한 경우 전문가 상담 권고만.\n"
+        "- 제공된 kb_context 근거에 기반해 답하라. 근거 없으면 '근거 없음'을 명시.\n"
+        "- 행동 추천은 최대 4개, 각 1~2문장, 수치(분/회/시간) 포함.\n"
+        "- JSON으로만 응답. 스키마: "
+        '{"state":"상태","summary":"요약","positives":["긍정요소"],'
+        '"recommendations":["행동"],"motivation":"격려","citations":[{"source":"파일","page":0}]}'
+    )
 
 def safe_json_parse(s: str) -> dict:
     if not s:
@@ -452,6 +495,9 @@ def analyze_text_simulation(text: str) -> dict:
     }
 
 def analyze_text_with_llm(text: str, voice_cues_for_prompt=None) -> dict:
+    # 개인화 컨텍스트
+    personal = build_personal_context(st.session_state.diary_entries, st.session_state.user_goals)
+    system_prompt = make_system_text_analyzer()
     if not openai_client or not text.strip():
         return analyze_text_simulation(text)
     cues = ""
@@ -462,7 +508,8 @@ def analyze_text_with_llm(text: str, voice_cues_for_prompt=None) -> dict:
         "다음 일기를 분석해 JSON으로만 응답하세요. 스키마:\n"
         '{"emotions":["감정1","감정2"],"stress_level":0,"energy_level":0,"mood_score":0,'
         '"summary":"요약","keywords":["키워드"],"tone":"긍정적/중립적/부정적","confidence":0.0}\n'
-        f"일기: {text}\n{cues}"
+        f"[개인화컨텍스트] {personal}\n"
+        f"[일기] {text}\n{cues}"
     )
     def _call():
         return openai_client.chat.completions.create(
@@ -471,7 +518,7 @@ def analyze_text_with_llm(text: str, voice_cues_for_prompt=None) -> dict:
             max_tokens=500,
             response_format={"type":"json_object"},
             messages=[
-                {"role":"system","content":TEXT_ANALYZER_SYSTEM},
+                {"role":"system","content":system_prompt},
                 {"role":"user","content":user_prompt}
             ]
         )
@@ -555,7 +602,7 @@ def preprocess_audio_for_asr(audio_bytes: bytes, target_sr=16000) -> bytes:
             frames = [pcm[i:i+frame_len*2] for i in range(0, len(pcm), frame_len*2)]
             voiced = []
             for f in frames:
-                if len(f) < frame_len*2: 
+                if len(f) < frame_len*2:
                     continue
                 if vad.is_speech(f, target_sr):
                     voiced.append(f)
@@ -664,7 +711,7 @@ def assess_mental_state(text, combined) -> dict:
         recs.append("4-7-8 호흡 3회(4초 들숨,7초 멈춤,8초 날숨).")
     if stability<50:
         recs.append("목/어깨 이완 스트레칭 2분.")
-    # ✅ FIXED: SyntaxError 나던 부분 (한글/바다코끼리 연산자 제거)
+    # ✅ FIXED: 불량 문법 제거 (과거 에러 원천)
     if arousal < 45 or energy < 45:
         recs.append("햇빛 10분 산책 + 가벼운 워킹 800~1000보.")
     if arousal>65 and stress>50:
@@ -933,7 +980,7 @@ def line_chart_no_tilt(df, x_col, y_cols, title=None):
 def onboarding():
     if not st.session_state.onboarding_completed:
         with st.expander("🌟 처음 사용자 가이드", expanded=True):
-            st.markdown("- 🎙️ 음성 2~3분 권장, 조용한 곳에서 자연스럽게.\n- ✍️ 텍스트도 OK. 솔직·구체적으로!\n- 감정은 **텍스트 기준**, 목소리는 **보조**.")
+            st.markdown("- 🎙️ 음성 2~3분 권장, 조용한 곳에서 자연스럽게.\n- ✍️ 텍스트로 기록해도 좋아요.\n- 꾸준히 기록하며 나에게 맞는 리듬을 찾아요.")
             if st.button("🎯 시작하기"):
                 st.session_state.onboarding_completed = True
                 st.rerun()
@@ -1018,9 +1065,8 @@ def page_today():
         # --- 결과 표시
         c1,c2,c3 = st.columns(3)
         with c1:
-            st.subheader("💖 감정 (텍스트 기반)")
+            st.subheader("💖 감정")
             st.write(", ".join(final.get("emotions",[])))
-            st.caption("감정 라벨은 텍스트만으로 판정합니다.")
         with c2:
             st.subheader("📊 마음 상태")
             sc = "🔴" if final['stress_level']>60 else ("🟢" if final['stress_level']<30 else "🟡")
@@ -1034,7 +1080,7 @@ def page_today():
             st.metric("분석 신뢰도", f"{final.get('confidence',0.6):.2f}")
 
         if voice_analysis:
-            st.markdown("### 🎵 목소리 신호 (보조 지표)")
+            st.markdown("### 🎵 목소리 신호")
             cues = final["voice_analysis"]["voice_cues"]
             qtxt = "높음" if cues["quality"]>0.7 else ("보통" if cues["quality"]>0.4 else "낮음")
             d1,d2,d3,d4 = st.columns(4)
@@ -1042,11 +1088,9 @@ def page_today():
             d2.metric("긴장도", f"{int(cues['tension'])}/100")
             d3.metric("안정도", f"{int(cues['stability'])}/100")
             d4.metric("녹음 품질", qtxt)
-            st.caption("※ 목소리 신호는 보조 지표이며, 감정은 텍스트 기반입니다.")
 
         st.markdown("### 🧠 오늘의 마음 코치")
-        card_class = "card"
-        st.markdown(f"<div class='{card_class}'>", unsafe_allow_html=True)
+        st.markdown(f"<div class='card'>", unsafe_allow_html=True)
         st.write(f"**상태:** {coach_card.get('state','중립')}")
         st.write(coach_card.get("summary","오늘의 상태를 차분히 정리했어요."))
 
@@ -1088,11 +1132,11 @@ def page_dashboard():
     recent = st.session_state.diary_entries[-30:]
     c1,c2,c3,c4 = st.columns(4)
     c1.metric("총 기록 수", f"{len(st.session_state.diary_entries)}개")
-    avgS = np.mean([e["analysis"].get("stress_level",0) for e in recent])
+    avgS = np.mean([e["analysis"].get("stress_level",0) for e in recent]) if recent else 0
     c2.metric("평균 스트레스", f"{avgS:.0f}%")
-    avgE = np.mean([e["analysis"].get("energy_level",0) for e in recent])
+    avgE = np.mean([e["analysis"].get("energy_level",0) for e in recent]) if recent else 0
     c3.metric("평균 에너지", f"{avgE:.0f}%")
-    avgM = np.mean([e["analysis"].get("mood_score",0) for e in recent])
+    avgM = np.mean([e["analysis"].get("mood_score",0) for e in recent]) if recent else 0
     c4.metric("평균 기분", f"{avgM:.0f}")
 
     st.subheader("😊 감정 분포 (최근 30개)")
@@ -1164,7 +1208,6 @@ def page_journey():
     ])
     with c2:
         metric = st.selectbox("지표 선택",["전체","스트레스","에너지","기분"])
-    # 🔎 x축 라벨 기울이지 않도록 Altair 사용
     if metric == "전체":
         line_chart_no_tilt(df, "날짜시간", ["스트레스","에너지","기분(시각화용)"], title="시간에 따른 변화")
         st.caption("※ 기분은 시각화를 위해 +70 조정 (실제 -70~70)")
@@ -1260,12 +1303,27 @@ def page_calendar():
                 for i,e in enumerate(entries):
                     emos = ", ".join(e.get("analysis",{}).get("emotions",[]))
                     with st.expander(f"📝 {e.get('time','')} - {emos}", expanded=(i==0)):
-                        st.write(e.get("text",""))
-                        a = e.get("analysis",{})
+                        st.markdown(f"<div class='card'>", unsafe_allow_html=True)
+                        st.markdown("**📝 기록 내용**")
+                        st.write(e["text"])
                         c1,c2,c3 = st.columns(3)
-                        c1.metric("스트레스", f"{a.get('stress_level',0)}%")
-                        c2.metric("에너지", f"{a.get('energy_level',0)}%")
-                        c3.metric("기분", f"{a.get('mood_score',0)}")
+                        a = e.get("analysis",{})
+                        s = a.get("stress_level",0); en = a.get("energy_level",0); m = a.get("mood_score",0)
+                        c1.write(f"**스트레스:** {'🔴' if s>60 else ('🟡' if s>30 else '🟢')} {s}%")
+                        c2.write(f"**에너지:** {'🟢' if en>60 else ('🟡' if en>40 else '🔴')} {en}%")
+                        c3.write(f"**기분:** {'🟢' if m>10 else ('🟡' if m>-10 else '🔴')} {m}")
+                        ms = e.get("mental_state",{})
+                        if ms.get("summary"):
+                            st.markdown("**🧠 코치 요약**")
+                            st.info(ms["summary"])
+                        if a.get("voice_analysis"):
+                            vc = a["voice_analysis"]["voice_cues"]
+                            st.markdown("**🎵 목소리 신호**")
+                            v1,v2,v3 = st.columns(3)
+                            v1.write(f"각성:{int(vc.get('arousal',0))}")
+                            v2.write(f"긴장:{int(vc.get('tension',0))}")
+                            v3.write(f"안정:{int(vc.get('stability',0))}")
+                        st.markdown("</div>", unsafe_allow_html=True)
                 if st.button("닫기", key=f"close_{year}_{month}_{d}"):
                     st.session_state[sk] = False
                     st.rerun()
@@ -1394,7 +1452,6 @@ def page_voice():
             st.session_state.prosody_baseline = {}
             st.success("초기화 완료")
             st.rerun()
-    st.caption("※ 보조지표이며, 감정 라벨은 텍스트로 판단합니다.")
     st.markdown('</div>', unsafe_allow_html=True)
 
 def page_archive():
@@ -1491,7 +1548,7 @@ def page_archive():
                 st.info(ms["summary"])
             if a.get("voice_analysis"):
                 vc = a["voice_analysis"]["voice_cues"]
-                st.markdown("**🎵 음성 보조지표**")
+                st.markdown("**🎵 목소리 신호**")
                 v1,v2,v3 = st.columns(3)
                 v1.write(f"각성:{int(vc.get('arousal',0))}")
                 v2.write(f"긴장:{int(vc.get('tension',0))}")
@@ -1522,20 +1579,11 @@ def page_kb():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =============================
-# 2차 코칭 (RAG) — LLM 사용 시
+# 2차 코칭 (RAG) — LLM 사용 시 (개인화 반영)
 # =============================
-COACH_SYSTEM = (
-    "너는 한국어 웰빙 코치다.\n"
-    "- 의료/약물/위험판단/자해 조언 금지. 필요한 경우 전문가 상담 권고만.\n"
-    "- 제공된 kb_context 근거에 기반해 답하라. 근거 없으면 '근거 없음'을 명시.\n"
-    "- 행동 추천은 최대 4개, 각 1~2문장, 수치(분/회/시간) 포함.\n"
-    "- JSON으로만 응답. 스키마: "
-    '{"state":"상태","summary":"요약","positives":["긍정요소"],'
-    '"recommendations":["행동"],"motivation":"격려","citations":[{"source":"파일","page":0}]}'
-)
-
 def build_coach_payload(text, combined, kb_ctx):
     cues = combined.get("voice_analysis",{}).get("voice_cues",{})
+    personal = build_personal_context(st.session_state.diary_entries, st.session_state.user_goals)
     return {
         "text": text,
         "signal": {
@@ -1549,6 +1597,7 @@ def build_coach_payload(text, combined, kb_ctx):
                 "quality": float(cues.get("quality",0.5))
             }
         },
+        "personal_context": personal,
         "kb_context": kb_ctx,
         "constraints": {"max_items":4,"no_medical":True,"language":"ko-KR"}
     }
@@ -1557,6 +1606,7 @@ def coach_with_rag(text, combined, kb_ctx) -> dict:
     if not openai_client:
         return assess_mental_state(text, combined)
     payload = build_coach_payload(text, combined, kb_ctx)
+    system_prompt = make_system_coach()
     def _call():
         return openai_client.chat.completions.create(
             model="gpt-4o",
@@ -1564,7 +1614,7 @@ def coach_with_rag(text, combined, kb_ctx) -> dict:
             max_tokens=650,
             response_format={"type":"json_object"},
             messages=[
-                {"role":"system","content":COACH_SYSTEM},
+                {"role":"system","content":system_prompt},
                 {"role":"user","content":json.dumps(payload, ensure_ascii=False)}
             ]
         )
@@ -1668,7 +1718,7 @@ def export_sidebar():
                     st.rerun()
 
 # =============================
-# Sidebar (unchanged colors; white UI)
+# Sidebar (white UI, 개인화 프롬프트 섹션 추가)
 # =============================
 def sidebar():
     with st.sidebar:
@@ -1686,6 +1736,11 @@ def sidebar():
                         st.success("저장됨. Rerun 해주세요.")
                     else:
                         st.error("키 형식이 올바르지 않습니다.")
+        st.markdown("---")
+        st.markdown("### 🎛️ 개인화 프롬프트")
+        st.session_state.coach_tone = st.selectbox("코치 톤", ["따뜻함","간결함","도전적"], index=["따뜻함","간결함","도전적"].index(st.session_state.coach_tone))
+        st.session_state.coach_focus = st.selectbox("집중 영역", ["균형","스트레스","에너지","기분"], index=["균형","스트레스","에너지","기분"].index(st.session_state.coach_focus))
+        st.caption("개인화 설정은 텍스트 분석/코칭 프롬프트에 반영됩니다.")
         st.markdown("---")
         page = st.selectbox("페이지", [
             "🎙️ 오늘의 이야기",
@@ -1728,7 +1783,8 @@ def sidebar():
                 st.caption("로그 없음")
         st.markdown("---")
         st.markdown("### ℹ️ 앱 정보")
-        st.markdown("**버전:** v2.5 (화이트 UI + x축 라벨 고정)")
+        st.markdown("**플랫폼:** 하루 소리")
+        st.markdown("**버전:** v2.6 (화이트 UI + x축 라벨 고정 + 개인화 프롬프트)")
         st.markdown("**시간대:** 한국 표준시 (KST)")
         return page
 
@@ -1788,8 +1844,7 @@ def footer():
         st.markdown("---")
         st.markdown(f"""
         <div style='text-align:center;color:#666;font-size:0.9rem;padding:1rem;'>
-            Made with ❤️ | 감정 라벨은 <strong>텍스트 우선</strong> · 목소리는 <strong>보조</strong><br>
-            마지막 업데이트: {kst_now().strftime('%Y-%m-%d %H:%M KST')} |
+            Made with ❤️ | 마지막 업데이트: {kst_now().strftime('%Y-%m-%d %H:%M KST')} |
             기록 수: {len(st.session_state.diary_entries)}개 |
             목표 수: {len([g for g in st.session_state.user_goals if g.get('active', True)])}개
         </div>""", unsafe_allow_html=True)
