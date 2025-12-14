@@ -146,40 +146,4 @@ Track2-K-intelligence-2025-/
 4. **AI 피드백**: 개인화된 조언과 응원 메시지 제공
 5. **저장 및 리뷰**: 일기를 저장하고 과거 기록과 비교
 
-## 🔒 개인정보 보호
 
-- **로컬 우선**: 모든 일기 데이터는 사용자의 로컬 환경에만 저장됩니다
-- **API 키 보안**: OpenAI API Key는 세션에만 저장되며 서버에 전송되지 않습니다
-- **선택적 공유**: 사용자가 명시적으로 동의한 경우에만 데이터 공유
-
-## 🤝 기여하기
-
-프로젝트 개선에 기여하고 싶으시다면:
-
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## 📝 라이선스
-
-이 프로젝트는 MIT 라이선스 하에 배포됩니다. 자세한 내용은 `LICENSE` 파일을 참조하세요.
-
-## 👥 팀
-
-**KT Track2 K-intelligence 2025**
-
-## 📧 문의
-
-프로젝트 관련 문의사항이 있으시면 Issues 탭을 이용해주세요.
-
----
-
-<div align="center">
-
-**🎙️ 하루 소리와 함께 더 건강한 마음을 만들어가세요 🌟**
-
-Made with ❤️ by KT Track2 K-intelligence Team
-
-</div>
